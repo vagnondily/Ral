@@ -12,6 +12,14 @@
 
 ## État courant
 
+> **02/11 — Archive dashboard : import des exports Kobo « en libellés » (test réel Résilience V2.1).** ✅ Mise à jour de
+> `outils/dashboard-suivi-processus/planning/` (moteur d'import : 2ᵉ ligne d'en-tête ignorée, réponses Oui / Non / n/a et
+> listes décodées en codes, région et district par nom, site par nom normalisé, GPS `_HHCoord`) et de `build3.js`. Vérifié
+> sur le fichier fourni par le propriétaire : 263 fiches → 164 visites (162 exploitables), score 66,5, 7 alertes graves,
+> régions renseignées, 0 erreur sur 12 onglets, export réouvert, import rejoué identique. Livré au propriétaire (v3.3).
+> L'archive ne contient toujours aucune donnée (contrôle par script). Le lot « rapport » (refonte infographique) reste
+> hors archive : construction interrompue à la demande du propriétaire avant la relecture adverse.
+
 > **02/11 — Archive du dashboard hors ligne « Suivi de processus » v3 (demande du propriétaire).** ✅ Le code de
 > construction du dashboard HTML autonome (outil séparé de MEMS) est archivé dans `outils/dashboard-suivi-processus/` :
 > `build3.js` (correctifs à ancres exactes par lots, empreintes CSP recalculées), lots engine / core / agents / map /

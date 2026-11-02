@@ -17,6 +17,7 @@ const SETS = [
   { name: 'pilotage', patches: __dirname + '/pilotage/patches.js', module: __dirname + '/pilotage/module.js', css: [__dirname + '/pilotage/style.css'], post: true },
   { name: 'logistique', patches: __dirname + '/logistique/patches.js', module: __dirname + '/logistique/module.js', css: [__dirname + '/logistique/style.css'], post: true },
   { name: 'share', patches: __dirname + '/share/patches.js', module: __dirname + '/share/module.js', css: [__dirname + '/share/style.css'], post: true },
+  { name: 'rapport', patches: __dirname + '/rapport/patches.js', module: __dirname + '/rapport/module.js', css: [__dirname + '/rapport/style.css'], post: true },
   // Sécurité : correctifs appliqués APRÈS l'assemblage (ancres sur le texte final), + directives CSP supplémentaires
   { name: 'security', patches: __dirname + '/security/patches.js', module: __dirname + '/security/module.js', css: [__dirname + '/security/style.css'], post: true,
     csp: " require-trusted-types-for 'script'; trusted-types 'none';" },

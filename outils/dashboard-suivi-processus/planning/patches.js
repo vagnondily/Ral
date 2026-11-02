@@ -48,11 +48,16 @@ function parseCSV(text, onHeader, onRow) {
   return header;
 }
 
-// ---- correspondance des colonnes : extraction Tableau OU export brut MoDA / ONA / Kobo
+// ---- correspondance des colonnes : extraction Tableau OU export brut MoDA / ONA / Kobo (codes « XML » ou libellés)
 // Un export brut nomme les colonnes d'après le XLSForm : « groupe/sous-groupe/variable », « groupe-variable », « groupe:variable »,
-// choix multiples « variable/code » (ou une seule colonne « variable » = "1 3"). Le spec connaît chaque variable par son nom
-// XLSForm : on résout le même besoin, d'abord par le nom exact de colonne, puis par le nom de variable, puis par le libellé.
+// choix multiples « variable/code » (export en codes) ou « variable/Libellé » (export en libellés). Le spec connaît chaque variable par
+// son nom XLSForm : on résout le même besoin par le nom exact de colonne, puis par le nom de variable, puis par le libellé.
 // Toutes les tables indexées par un nom de colonne importé sont des Map ou des objets sans prototype.
+let EX_CTX = null;   // P courant (registre des sites, codes administratifs) : posé par previewExtract et par l'enveloppe d'importActivity
+const LAB_NORM = s => asciiFold(String(s === null || s === undefined ? '' : s)).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const LAB_YESNO = new Map([['oui', '1'], ['yes', '1'], ['vrai', '1'], ['true', '1'], ['non', '0'], ['no', '0'], ['faux', '0'], ['false', '0'], ['partiellement', '2'], ['partiel', '2'], ['partially', '2'], ['en partie', '2']]);
+const LAB_NA = new Set(['', 'n a', 'na', 'nan', 'sans objet', 'non applicable', 'not applicable', 'none', 'null']);
+const LAB_CODE = /^-?\d+(\.\d+)?$|^(true|false)$/i;
 function needOf(S, gdRep) {
   const need = new Set([S.mainid]);
   Object.values(S.vars).forEach(v => { if (v.t === 'm') v.o.forEach(o => need.add(o[0])); else need.add(v.c); });
@@ -62,15 +67,24 @@ function needOf(S, gdRep) {
 }
 function hClean(h) { return String(h === null || h === undefined ? '' : h).replace(/^﻿/, '').trim(); }
 function hKey(h) { return asciiFold(hClean(h)).toLowerCase().replace(/[/:.-]+/g, '/').replace(/\s+/g, ' ').replace(/^\/+|\/+$/g, ''); }
+// libellé ↔ code d'une variable, d'après les listes de choix du spec et les tables de l'explorateur (une seule source : le formulaire)
+function labelDicts(S) {
+  const toCode = new Map(), toLabel = new Map();
+  const put = (nm, code, label) => { if (!nm || label === undefined || label === null) return; if (!toCode.has(nm)) { toCode.set(nm, new Map()); toLabel.set(nm, new Map()); } const k = LAB_NORM(label); if (k && !toCode.get(nm).has(k)) toCode.get(nm).set(k, String(code)); if (!toLabel.get(nm).has(String(code))) toLabel.get(nm).set(String(code), String(label)); };
+  Object.keys(S.choices || {}).forEach(nm => { const c = S.choices[nm]; if (c && typeof c === 'object') Object.keys(c).forEach(code => put(nm, code, c[code])); });
+  (S.explorer || []).forEach(q => { if (q && q.n && Array.isArray(q.k) && Array.isArray(q.c)) q.k.forEach((code, i) => put(q.n, code, q.c[i])); });
+  return { toCode, toLabel };
+}
 function headerMap(header, S, gdRep) {
-  const need = needOf(S, gdRep);
-  const exact = new Map(), suf = new Map();
+  const need = needOf(S, gdRep), LD = labelDicts(S);
+  const exact = new Map(), suf = new Map(), kids = new Map();
   header.forEach((h, j) => {
     const k = hClean(h); if (k && !exact.has(k)) exact.set(k, j);
     const segs = hKey(h).split('/').filter(x => x !== '');
     for (let i = 0; i < segs.length; i++) { const sk = segs.slice(i).join('/'); if (!suf.has(sk)) suf.set(sk, j); }
+    if (segs.length >= 2) { const p = segs[segs.length - 2]; if (!kids.has(p)) kids.set(p, []); kids.get(p).push(j); }
   });
-  // libellés de questions connus du spec (normes, explorateur) → nom de variable (export « avec libellés »)
+  // libellés de questions connus du spec (normes, explorateur) → nom de variable (export « en-têtes en libellés »)
   const lab = new Map(); let byLabel = 0;
   (S.items || []).forEach(it => { if (it && it.label && it.name) lab.set(hKey(it.label), it.name); });
   (S.explorer || []).forEach(q => { if (q && q.l && q.n) lab.set(hKey(q.l), q.n); });
@@ -80,11 +94,18 @@ function headerMap(header, S, gdRep) {
   need.forEach(k => { if (exact.has(k)) put(k, exact.get(k), 'exact'); });
   Object.keys(S.vars).forEach(nm => {
     const v = S.vars[nm], key = hKey(nm);
-    if (v.t === 'm') v.o.forEach(o => {
-      const cap = o[0], code = String(o[1]); if (idx[cap] !== undefined) return;
-      if (put(cap, suf.get(key + '/' + hKey(code)), 'nom')) return;
-      const jc = suf.get(key); if (jc !== undefined) { combo[cap] = code; put(cap, jc, 'liste'); }
-    });
+    if (v.t === 'm') {
+      const tl = LD.toLabel.get(nm);
+      v.o.forEach(o => {
+        const cap = o[0], code = String(o[1]); if (idx[cap] !== undefined) return;
+        if (put(cap, suf.get(key + '/' + hKey(code)), 'nom')) return;
+        const l = tl && tl.get(code); if (l && put(cap, suf.get(key + '/' + hKey(l)), 'libellé')) return;
+      });
+      // export en libellés sans liste connue : colonnes filles dans l'ordre du formulaire = options dans l'ordre du spec
+      const ch = (kids.get(key) || []).filter(j => !Object.keys(idx).some(k => idx[k] === j));
+      if (v.o.every(o => idx[o[0]] === undefined) && ch.length && ch.length === v.o.length) v.o.forEach((o, i) => put(o[0], ch[i], 'position'));
+      if (v.o.every(o => idx[o[0]] === undefined)) { const jc = suf.get(key); if (jc !== undefined) v.o.forEach(o => { combo[o[0]] = String(o[1]); put(o[0], jc, 'liste'); }); }
+    }
     else if (v.c && idx[v.c] === undefined) put(v.c, suf.get(key), 'nom');
   });
   need.forEach(k => {
@@ -93,9 +114,16 @@ function headerMap(header, S, gdRep) {
     const p3 = k.replace(/\s*\(Data\d*\)\s*$/i, ''); if (p3 !== k) c.push(hKey(p3));
     for (const x of c) { const j = suf.has(x) ? suf.get(x) : suf.has('_' + x) ? suf.get('_' + x) : suf.get(x.replace(/^_+/, '')); if (j !== undefined) { put(k, j, 'nom'); break; } }
   });
+  // GPS d'un export Kobo : colonnes « …/_HHCoord_xx_latitude / _longitude / _precision » dérivées de la colonne de précision du spec
+  let gps = null;
+  if (S.tb && S.tb.prec && (idx[S.tb.lat] === undefined || idx[S.tb.lon] === undefined)) {
+    const p = String(S.tb.prec), i0 = p.lastIndexOf('_HHCoord');
+    if (i0 >= 0) { const tail = p.slice(i0); const seg = x => hKey(tail.replace(/precision$/i, x)); const jl = suf.get(seg('latitude')), jo = suf.get(seg('longitude')), jp = suf.get(seg('precision'));
+      if (jl !== undefined && jo !== undefined) { if (put(S.tb.lat, jl, 'gps') | put(S.tb.lon, jo, 'gps')) gps = tail; if (jp !== undefined) put(S.tb.prec, jp, 'gps'); } }
+  }
   if (idx[S.mainid] === undefined) { for (const a of ['_uuid', 'meta/instanceid', 'instanceid', '_id', '_index', 'key']) { if (put(S.mainid, suf.get(a), 'identifiant')) break; } }
   const H = header.map(hClean);
-  return { idx, src, combo, byLabel, header: H, idSource: idx[S.mainid] !== undefined ? H[idx[S.mainid]] : null };
+  return { idx, src, combo, byLabel, header: H, idSource: idx[S.mainid] !== undefined ? H[idx[S.mainid]] : null, gps, LD };
 }
 function makeGetters(M) {
   const g = new Map();
@@ -105,6 +133,16 @@ function makeGetters(M) {
     else g.set(k, row => { const v = row[j]; if (v === undefined || NA_SET.has(v)) return null; return String(v).split(/[\s,;]+/).indexOf(code) >= 0 ? '1' : '0'; });
   });
   return g;
+}
+// 2ᵉ ligne d'en-tête d'un export Kobo « en libellés » : les cellules reprennent le nom de la variable (« _id », « start ») ou le libellé de la question
+function isLabelRow(row, M, S) {
+  const seg = h => { const s = String(h).split(/[/]/).pop(); return s; };
+  let eq = 0; M.header.forEach((h, j) => { if (row[j] !== undefined && row[j] !== '' && row[j] === seg(h)) eq++; });
+  const ji = M.idx[S.mainid], idv = ji === undefined ? undefined : row[ji];
+  const idLikeData = idv !== undefined && (/^\d+$/.test(String(idv)) || /^[0-9a-f-]{20,}$/i.test(String(idv)));
+  if (idLikeData) return false;
+  if (ji !== undefined && idv !== undefined && LAB_NORM(idv) === LAB_NORM(seg(M.header[ji]))) return true;
+  return eq >= 5;
 }
 function mapReport(M, S) {
   const used = new Set(); Object.keys(M.idx).forEach(k => used.add(M.idx[k]));
@@ -117,12 +155,14 @@ function mapReport(M, S) {
   return { exactN, aliasN, alias, missing, tbMissing, ignored, nVars: names.length, found, idSource: M.idSource, byLabel: M.byLabel };
 }
 function readExtract(text, S, gdRep) {
-  let M = null, G = null, mainRows = [], seen = new Set(), fRows = [], fSeen = new Set(), sRows = [], sSeen = new Set(), nRaw = 0, header;
+  const P = EX_CTX; const act = P && P.spec && P.spec.acts ? Object.keys(P.spec.acts).find(a => P.spec.acts[a].tab === S.tab && P.spec.acts[a].mainid === S.mainid) || null : null;
+  let M = null, G = null, mainRows = [], seen = new Set(), fRows = [], fSeen = new Set(), sRows = [], sSeen = new Set(), nRaw = 0, noId = 0, header, labelRow = false, first = true;
   const cols = [];
   const val = (row, k) => { const f = G.get(k); return f ? f(row) : null; };
   header = parseCSV(text, h => { M = headerMap(h, S, gdRep); G = makeGetters(M); Object.keys(M.idx).forEach(k => cols.push(k)); return null; }, row => {
+    if (first) { first = false; if (isLabelRow(row, M, S)) { labelRow = true; return; } }
     nRaw++;
-    const id = val(row, S.mainid);
+    const id = val(row, S.mainid); if (id === null) noId++;
     const key = id === null ? '\u0000' : id;
     if (!seen.has(key)) { seen.add(key); mainRows.push(cols.map(k => val(row, k))); }
     if (gdRep) {
@@ -133,9 +173,53 @@ function readExtract(text, S, gdRep) {
   });
   if (!M || M.idx[S.mainid] === undefined) throw new Error('Colonne identifiant « ' + S.mainid + ' » absente (ni _uuid, ni _id, ni meta/instanceID) : ce fichier ne correspond pas à cette activité.');
   const raw = Object.create(null); cols.forEach((k, j) => { raw[k] = normCol(mainRows.map(r => r[j])); });
+  const nr = mainRows.length; const nul = () => new Array(nr).fill(null);
+  // ---- export « en libellés » ? décidé sur les normes et les alertes (Oui / Non / n/a plutôt que 1 / 0)
+  const capVar = new Map(); Object.keys(S.vars).forEach(nm => { const v = S.vars[nm]; if (v.t === 'm') v.o.forEach(o => capVar.set(o[0], { nm, opt: true, code: String(o[1]) })); else if (v.c) capVar.set(v.c, { nm, opt: false }); });
+  const diag = { labelRow, labels: false, decoded: 0, kept: 0, itemsFound: 0, itemsDecodable: 0, risksFound: 0, risksDecodable: 0, admByName: 0, siteSrc: M.idx[S.tb.site] !== undefined ? 'code' : 'absent', siteNamed: 0, siteMatched: 0, siteDistinct: 0, gpsSrc: M.gps ? 'kobo' : (M.idx[S.tb.lat] !== undefined ? 'tableau' : 'absent'), noId };
+  const probe = (S.items || []).map(it => S.vars[it.name] && S.vars[it.name].c).concat((S.risks || []).map(r => S.vars[r] && S.vars[r].c)).filter(c => c && raw[c]);
+  let numN = 0, labN = 0; probe.forEach(c => raw[c].forEach(v => { if (v === null) return; if (LAB_CODE.test(v)) numN++; else { const k = LAB_NORM(v); if (LAB_YESNO.has(k) || LAB_NA.has(k)) labN++; } }));
+  diag.labels = labN > numN && labN > 0;
+  if (diag.labels) {
+    const isItem = new Set((S.items || []).map(it => it.name).concat(S.risks || []));
+    capVar.forEach((info, cap) => {
+      const col = raw[cap]; if (!col) return; const v = S.vars[info.nm]; if (!info.opt && v.t === 'n') return;
+      const dict = M.LD.toCode.get(info.nm) || null, optLabel = info.opt ? LAB_NORM((M.LD.toLabel.get(info.nm) || new Map()).get(info.code) || '') : '';
+      raw[cap] = col.map(x => {
+        if (x === null) return null; if (LAB_CODE.test(x)) return x; const k = LAB_NORM(x);
+        if (LAB_NA.has(k)) { diag.decoded++; return null; }
+        if (info.opt) { if (LAB_YESNO.has(k)) { diag.decoded++; return LAB_YESNO.get(k); } if (optLabel && k === optLabel) { diag.decoded++; return '1'; } diag.kept++; return x; }
+        if (dict && dict.has(k)) { diag.decoded++; return dict.get(k); }
+        if (LAB_YESNO.has(k)) { diag.decoded++; return LAB_YESNO.get(k); }
+        if (dict || isItem.has(info.nm)) diag.kept++;   // seule une question à choix compte comme « non décodée » (texte libre et dates : rien à décoder)
+        return x;
+      });
+    });
+  }
+  (S.items || []).forEach(it => { const c = S.vars[it.name] && S.vars[it.name].c; if (!c || !raw[c]) return; diag.itemsFound++; if (raw[c].some(x => x === '1' || x === '0' || x === '2' || x === '1.0' || x === '0.0')) diag.itemsDecodable++; });
+  (S.risks || []).forEach(r => { const c = S.vars[r] && S.vars[r].c; if (!c || !raw[c]) return; diag.risksFound++; if (raw[c].some(x => x === '1' || x === '0')) diag.risksDecodable++; });
+  // ---- région / district fournis en noms (export Kobo) → codes administratifs du spec
+  if (P && P.spec) {
+    const inv = o => { const m = new Map(); Object.keys(o || {}).forEach(code => { const k = LAB_NORM(o[code]); if (k && !m.has(k)) m.set(k, code); }); return m; };
+    [[S.cfg.r1, inv(P.spec.adm1)], [S.cfg.r2, inv(P.spec.adm2)]].forEach(([nm, m]) => {
+      const c = nm && S.vars[nm] && S.vars[nm].c; if (!c || !raw[c] || !m.size) return;
+      raw[c] = raw[c].map(x => { if (x === null || LAB_CODE.test(x)) return x; const code = m.get(LAB_NORM(x)); if (code !== undefined) { diag.admByName++; return code; } return x; });
+    });
+  }
+  // ---- site sans code (export Kobo : nom du site saisi) : rattaché au registre par son nom, sinon clé = nom normalisé
+  const siteo = S.cfg.siteo && S.vars[S.cfg.siteo] && S.vars[S.cfg.siteo].c; const names = siteo && raw[siteo] ? raw[siteo] : null;
+  if (names) {
+    const reg = new Map(); if (P && P.planFull && act) { const PF = P.planFull, ci = PF.cols.indexOf('act'), cl = PF.cols.indexOf('localite'); PF.rows.forEach(r => { if (r[ci] !== act) return; const k = LAB_NORM(r[cl]); if (k && !reg.has(k)) reg.set(k, String(r[0])); }); }
+    const codes = raw[S.tb.site] || nul(); const regCodes = new Set(reg.values());
+    const codeOk = codes.filter(x => x !== null && (LAB_CODE.test(x) || regCodes.has(String(x)))).length, codeN = codes.filter(x => x !== null).length;
+    if (!codeN || (diag.labels && codeOk < codeN / 2)) {
+      const dist = new Set();
+      raw[S.tb.site] = codes.map((x, i) => { if (x !== null && regCodes.has(String(x))) return x; const k = LAB_NORM(names[i]); if (!k) return x !== null && LAB_CODE.test(x) ? x : null; dist.add(k); diag.siteNamed++; const code = reg.get(k); if (code) { diag.siteMatched++; return code; } return 'N:' + k.slice(0, 80); });
+      diag.siteSrc = 'nom'; diag.siteDistinct = dist.size;
+    }
+  }
   const missing = []; Object.entries(S.vars).forEach(([nm, v]) => { if (v.t !== 'm' && !(v.c in raw)) missing.push(nm); });
   Object.values(S.tb).forEach(c => { if (!(c in raw)) missing.push(c); });
-  const nr = mainRows.length; const nul = () => new Array(nr).fill(null);
   const df = {};
   Object.entries(S.vars).forEach(([nm, v]) => {
     if (v.t === 'm') {
@@ -146,24 +230,19 @@ function readExtract(text, S, gdRep) {
   });
   const TB = {}; Object.entries(S.tb).forEach(([k, c]) => { TB[k] = c in raw ? raw[c] : nul(); });
   df._id = raw[S.mainid].map(x => x === null ? 'nan' : x);
-  return { df, TB, nr, nRaw, fRows, sRows, missing, ncols: header ? header.length : 0, map: M };
+  return { df, TB, nr, nRaw, fRows, sRows, missing, ncols: header ? header.length : 0, map: M, diag };
 }
-// Vérification SANS écriture : correspondance des colonnes, fiches, période (même lecture que readExtract)
+// Vérification SANS écriture : même lecture que l'import (correspondance, décodage, site, région), rien n'est conservé
 function previewExtract(P, text, act) {
   const S = P.spec.acts[act]; if (!S) throw new Error('activité inconnue');
   const gdRep = act === 'GD' ? P.spec.gdRepeat : null;
-  let M = null, G = null, nRaw = 0, noId = 0; const firstDay = new Map();
+  const prev = EX_CTX; EX_CTX = P; let X;
+  try { X = readExtract(text, S, gdRep); } finally { EX_CTX = prev; }
+  const rep = mapReport(X.map, S);
+  const ds = []; let noDate = 0; (X.df.SvyDate || []).forEach(v => { const d = parseDay(v); if (d) ds.push(d); else noDate++; }); ds.sort(cmp);
   const dcap = S.vars.SvyDate ? S.vars.SvyDate.c : null;
-  parseCSV(text, h => { M = headerMap(h, S, gdRep); G = makeGetters(M); return null; }, row => {
-    nRaw++;
-    const gi = G.get(S.mainid); const id = gi ? gi(row) : null; if (id === null) { noId++; return; }
-    if (!firstDay.has(id)) { const gd = dcap ? G.get(dcap) : null; firstDay.set(id, gd ? parseDay(gd(row)) : null); }
-  });
-  if (!M) throw new Error('fichier vide');
-  const rep = mapReport(M, S);
-  const ds = []; let noDate = 0; firstDay.forEach(d => { if (d) ds.push(d); else noDate++; }); ds.sort(cmp);
-  return Object.assign(rep, { act, rows: nRaw, fiches: firstDay.size, noId, idOk: M.idx[S.mainid] !== undefined, period: ds.length ? [ds[0], ds[ds.length - 1]] : null,
-    outWin: ds.filter(d => d < WIN0 || d > WIN1).length, noDate, dateCol: dcap && M.idx[dcap] !== undefined ? M.header[M.idx[dcap]] : null, win: [WIN0, WIN1], ncols: M.header.length });
+  return Object.assign(rep, { act, rows: X.nRaw, fiches: X.nr, noId: X.diag.noId, idOk: true, period: ds.length ? [ds[0], ds[ds.length - 1]] : null,
+    outWin: ds.filter(d => d < WIN0 || d > WIN1).length, noDate, dateCol: dcap && X.map.idx[dcap] !== undefined ? X.map.header[X.map.idx[dcap]] : null, win: [WIN0, WIN1], ncols: X.ncols, diag: X.diag });
 }
 
 // ---- plan de suivi (liste DOTS) : colonnes reconnues par nom exact puis par graphie tolérante (casse, accents, espaces, mois anglais)
@@ -279,14 +358,20 @@ module.exports = [
     start: '    function parseCSV(text, onHeader, onRow) {', end: '      return header;\n    }', replace: src(parseCSV) },
   { label: 'moteur : correspondance des colonnes (Tableau, MoDA, ONA, Kobo) + lecture d’une extraction + vérification sans écriture',
     start: '    function readExtract(text, S, gdRep) {', end: '      return { df, TB, nr, nRaw, fRows, sRows, missing, ncols: header ? header.length : 0 };\n    }',
-    replace: src(needOf, hClean, hKey, headerMap, makeGetters, mapReport, readExtract, previewExtract) },
+    replace: "    let EX_CTX = null;   // P courant : registre des sites et codes administratifs (posé par previewExtract et par l’enveloppe d’importActivity)\n" +
+      "    const LAB_NORM = s => asciiFold(String(s === null || s === undefined ? '' : s)).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();\n" +
+      "    const LAB_YESNO = new Map([['oui', '1'], ['yes', '1'], ['vrai', '1'], ['true', '1'], ['non', '0'], ['no', '0'], ['faux', '0'], ['false', '0'], ['partiellement', '2'], ['partiel', '2'], ['partially', '2'], ['en partie', '2']]);\n" +
+      "    const LAB_NA = new Set(['', 'n a', 'na', 'nan', 'sans objet', 'non applicable', 'not applicable', 'none', 'null']);\n" +
+      "    const LAB_CODE = /^-?\\d+(\\.\\d+)?$|^(true|false)$/i;\n" + src(needOf, hClean, hKey, labelDicts, headerMap, makeGetters, isLabelRow, mapReport, readExtract, previewExtract) },
   { label: 'moteur : import du plan de suivi (colonnes tolérantes, case vide = mois inchangé, identifiants conservés) + aperçu',
     start: '    function importPlan(P0, text) {', end: '      P.planFull.rows = out;\n      return P;\n    }', replace: src(planKey, planColumns, importPlan, previewPlan) },
   { label: 'moteur : détection de l’activité (aussi sur les en-têtes Kobo « groupe/variable »)',
     start: '    function detectAct(P, headerLine) {', end: '      return bs >= 3 ? best : null;\n    }', replace: src(detectActDetail, detectAct) },
   { label: 'moteur : exports du lot planification',
     find: '    /*ENGINE-EXPORTS*/',
-    replace: '    API.previewExtract = previewExtract; API.previewPlan = previewPlan; API.detectActDetail = detectActDetail; API.headerMap = headerMap; API.parseDay = parseDay;\n    /*ENGINE-EXPORTS*/' },
+    replace: "    API.previewExtract = previewExtract; API.previewPlan = previewPlan; API.detectActDetail = detectActDetail; API.headerMap = headerMap; API.parseDay = parseDay;\n" +
+      "    { const importActivityRaw = API.importActivity; API.importActivity = (P0, act, text, meta) => { const prev = EX_CTX; EX_CTX = P0; try { return importActivityRaw(P0, act, text, meta); } finally { EX_CTX = prev; } }; }   // readExtract lit le registre et les codes administratifs de P0\n" +
+      "    /*ENGINE-EXPORTS*/" },
 
   // ---------------------------------------------------------------- écran
   { label: 'sous-titre : « données de visites » et « plan de suivi » distingués',
