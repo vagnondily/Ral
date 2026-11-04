@@ -11,7 +11,7 @@
   const OV_TREND_PTS = 5;          // écart (points de %) sous lequel une tendance est dite « stable »
   const OV_OLD_DAYS = 90;          // âge d'un cas signalé comme ancien
   const OV_DOM_SHARE = 0.1;       // un domaine n'est classé (« le plus faible ») que s'il est renseigné dans au moins 10 % des visites de l'activité
-  const OV_CASE_ST = ['À transmettre', 'Transmis', 'En vérification', 'Clos – confirmé', 'Clos – non confirmé'];
+  const OV_CASE_ST = ['Ouvert', 'Transmis', 'En cours', 'Clos', 'Vérifié', 'Sans suite'];   // suivi de la clôture des cas
 
   // ---------------------------------------------------------------- sites, agents, fiches
   function ovSiteOf(v) {
@@ -217,13 +217,14 @@
     return cell(v, false, (lab ? lab + ' · ' : '') + fmt(n) + ' visites');
   }
   // ---------------------------------------------------------------- export « cas à suivre » (CSV durci et XLSX sans formule)
-  const OV_CASE_H = ['Activité', 'Date de la visite', 'Site', 'Code du site', 'District', 'Région', 'Bureau', 'Partenaire de suivi (TPM)', 'Partenaire de mise en œuvre', 'Agent(s)', 'Alerte', 'Niveau', 'Question', 'Réponse comptée comme alerte', 'Autres alertes de la visite', 'Score /100', 'Statut du cas', 'Clé du cas'];
+  const OV_CASE_H = ['Activité', 'Date de la visite', 'Site', 'Code du site', 'District', 'Région', 'Bureau', 'Partenaire de suivi (TPM)', 'Partenaire de mise en œuvre', 'Agent(s)', 'Alerte', 'Niveau', 'Question', 'Réponse comptée comme alerte', 'Autres alertes de la visite', 'Score /100', 'Statut du cas', 'Canal de transmission', 'Responsable', 'Action / décision', 'Date de clôture', 'Résolution', 'Vérifiée', 'Dernière mise à jour', 'Auteur', 'Clé du cas'];
   function ovCaseRow(v, code) {
-    const ri = RISK.findIndex(r => r.code === code), q = D.riskQ[v.act + '|' + code] || {}, st = ovCaseStore()[ovCaseKey(v, code)];
+    const ri = RISK.findIndex(r => r.code === code), q = D.riskQ[v.act + '|' + code] || {}, o = ovCaseStore()[ovCaseKey(v, code)] || {}, s = ovCaseS(o);
+    const verif = o.verif === 'oui' ? 'Oui' + (ovDay(o.verifAt) ? ' le ' + o.verifAt : '') : o.verif === 'non' ? 'Non' : '';
     return [ACT[v.act].short, v.date || '', DICT.site[v.site] || '', ovSiteOf(v).code || '', DICT.district[v.district] || '', DICT.region[v.region] || '', DICT.fo[v.fo] || '', DICT.org[v.org] || '', DICT.imp[v.imp] || '',
       (v.enus || []).filter(e => e !== OV_NR).map(e => DICT.enu[e]).join(', '), ovRiskLabel(v.act, code, ri), ovTierDef(ovTier(v.act, code)).short, q.q || code, q.ans || 'Oui',
       v.risks.filter(r => RISK[r].code !== code).map(r => riskLabel(v.act, r) + ' (' + ovTierDef(ovTier(v.act, RISK[r].code)).short + ')').join(' ; '), ovNum(v.score) ? Math.round(v.score * 10) / 10 : null,
-      ovTier(v.act, code) === 1 || ovTier(v.act, code) === 2 ? OV_CASE_ST[st ? st.s || 0 : 0] : '', ovCaseKey(v, code)];
+      OV_CASE_ST[s], o.canal || '', o.resp || '', ovCaseAction(o), ovDay(o.closeAt) || '', o.res ? ovClean(o.res, 500) : '', verif, o.at || '', o.by || '', ovCaseKey(v, code)];
   }
   function ovExportBtns(base, pairs, lead) { // pairs : [[visite, code]]
     const rows = () => pairs.map(([v, c]) => ovCaseRow(v, c));
@@ -485,52 +486,208 @@
   function ovCaseList(ok) { const out = []; ok.forEach(v => { const T = ovVT(v); [1, 2].forEach(t => T[t].forEach(r => out.push({ v, code: RISK[r].code, ri: r, tier: t, key: ovCaseKey(v, RISK[r].code) }))); }); return out; }
   const ovAge = d => d ? Math.max(0, Math.round((Date.parse(OV_NOW) - Date.parse(d)) / 864e5)) : null;
   function ovCasesTile(ok) {
-    const L = ovCaseList(ok), S = ovCaseStore(), open1 = L.filter(c => c.tier === 1 && !(S[c.key] && S[c.key].s >= 1)), old = open1.filter(c => ovAge(c.v.date) > OV_OLD_DAYS).length;
-    return ovTile({ l: 'Cas à suivre', v: fmt(open1.length), c: open1.length ? 'bad' : null, s: 'alertes graves non transmises', i: 'Dont ' + fmt(old) + ' relevées il y a plus de ' + OV_OLD_DAYS + ' jours. ' + fmt(L.length) + ' cas en tout : ' + fmt(L.filter(c => c.tier === 1).length) + ' graves et ' + fmt(L.filter(c => c.tier === 2).length) + ' à vérifier. Un cas = une visite et une alerte grave ou à vérifier ; son statut se suit dans le registre.', open: () => ovCasesDrawer() });
+    const L = ovCaseList(ok), S = ovCaseStore(), open1 = L.filter(c => c.tier === 1 && ovCaseS(S[c.key]) === 0), old = open1.filter(c => ovAge(c.v.date) > OV_OLD_DAYS).length;
+    return ovTile({ l: 'Cas à suivre', v: fmt(open1.length), c: open1.length ? 'bad' : null, s: 'alertes graves non transmises', i: 'Dont ' + fmt(old) + ' relevées il y a plus de ' + OV_OLD_DAYS + ' jours. ' + fmt(L.length) + ' cas en tout : ' + fmt(L.filter(c => c.tier === 1).length) + ' graves et ' + fmt(L.filter(c => c.tier === 2).length) + ' à vérifier. Un cas = une visite et une alerte grave ou à vérifier ; le suivi de sa clôture est dans l’onglet Cas à suivre.', open: ovGoCases });
   }
-  const OV_CF = { tier: 'all', st: 'all' };
+  // ---------------------------------------------------------------- suivi de la clôture : statut, journal, vue dédiée
+  const ovCaseS = o => (o && typeof o === 'object') ? Math.max(0, Math.min(OV_CASE_ST.length - 1, Math.round(+o.s) || 0)) : 0;
+  const ovStClosed = s => s === 3 || s === 4;       // clos ou vérifié
+  const ovStDone = s => s >= 3;                       // sorti du flux : clos, vérifié ou sans suite
+  const ovStOpen = s => s < 3;                        // encore à traiter : ouvert, transmis, en cours
+  function ovClean(t, max) { return String(t || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\S+@\S+/g, '[retiré]').replace(/\+?\d[\d .-]{7,}\d/g, '[retiré]').replace(/\s+/g, ' ').trim().slice(0, max || 500); }
+  const ovDay = x => /^\d{4}-\d{2}-\d{2}$/.test(String(x || '')) ? String(x) : '';
+  const ovCaseAction = o => o ? ovClean(o.action || o.c || '', 500) : '';
+  function ovCloseDay(o) { return (o && (ovDay(o.closeAt) || (ovStClosed(ovCaseS(o)) ? ovDay(o.at) : ''))) || ''; }
+  const OV_CANAUX = ['', 'Comité de plainte', 'Ligne verte', 'Superviseur', 'Protection', 'Programme', 'Sécurité', 'Autre'];
+  const OV_RESP = ['', 'S&E', 'Partenaire de mise en œuvre', 'TPM', 'Protection', 'Programme', 'Logistique', 'Sécurité', 'Direction'];
+  const OV_SLA_T = 2;    // transmission d’une alerte grave attendue sous 48 h
+  let OV_CASE_OPEN = null;
+  const OV_CF2 = { st: 'all', tier: 'all', canal: 'all', resp: 'all', late: false, q: '' };
+  if (typeof FILTER_SCOPE === 'object' && FILTER_SCOPE) FILTER_SCOPE.cases = 'all';   // la vue des cas applique tous les filtres globaux (barre unique)
+  function ovGoCases() { if (typeof closeDrawer === 'function') closeDrawer(); OV_CASE_OPEN = null; TAB = 'cases'; buildTabs(); render(); window.scrollTo(0, 0); }
+  function ovCasesDrawer() { ovGoCases(); }   // compat : la tuile et le Pilotage ouvrent l’onglet dédié
+  // journal append-only {clé, de, à, date, auteur, note}
+  function ovCaseLog() { return Array.isArray(D.caseLog) ? D.caseLog : []; }
+  function ovLogPush(key, from, to, note) {
+    if (!Array.isArray(D.caseLog)) D.caseLog = [];
+    D.caseLog.push({ key: String(key).slice(0, 200), from, to, at: localDay(), by: String(SESSION.by || '—').slice(0, 80), note: note ? ovClean(note, 120) : '' });
+    if (D.caseLog.length > 20000) D.caseLog = D.caseLog.slice(-20000);
+    if (CUR !== D) CUR.caseLog = D.caseLog;
+  }
   function ovSetCase(key, patch) {
     requireAdmin(() => {
       if (!D.cases || typeof D.cases !== 'object') D.cases = {};
-      const o = Object.assign({ s: 0, c: '' }, D.cases[key] || {}, patch);
-      o.s = Math.max(0, Math.min(OV_CASE_ST.length - 1, Math.round(+o.s) || 0)); o.c = String(o.c || '').replace(/[\u0000-\u001f]/g, ' ').slice(0, 500);
+      const prev = (D.cases[key] && typeof D.cases[key] === 'object') ? D.cases[key] : {}, from = ovCaseS(prev);
+      const o = Object.assign({}, prev, patch);
+      o.s = ovCaseS(o);
+      if ('action' in patch) o.action = ovClean(o.action, 500);
+      if ('res' in patch) o.res = ovClean(o.res, 500);
+      if ('canal' in patch) o.canal = OV_CANAUX.indexOf(o.canal) > 0 ? o.canal : '';
+      if ('resp' in patch) o.resp = OV_RESP.indexOf(o.resp) > 0 ? o.resp : '';
+      if ('verif' in patch) o.verif = (o.verif === 'oui' || o.verif === 'non') ? o.verif : '';
+      if ('closeAt' in patch) o.closeAt = ovDay(o.closeAt);
+      if ('verifAt' in patch) o.verifAt = ovDay(o.verifAt);
+      if (ovStClosed(o.s) && !ovDay(o.closeAt)) o.closeAt = localDay();   // date de clôture par défaut = aujourd’hui
       o.at = localDay(); o.by = String(SESSION.by || '—').slice(0, 80);
-      if (!o.s && !o.c) delete D.cases[key]; else D.cases[key] = { s: o.s, c: o.c, at: o.at, by: o.by };
+      delete o.c;   // ancien champ « commentaire » fusionné dans « action »
+      const empty = !o.s && !o.action && !o.res && !o.canal && !o.resp && !o.verif && !o.closeAt && !o.verifAt;
+      if (empty) delete D.cases[key]; else D.cases[key] = o;
       if (CUR !== D) CUR.cases = D.cases;
-      SESSION.dirty = true; ovCasesDrawer();
+      const to = empty ? 0 : o.s;
+      if (from !== to) ovLogPush(key, OV_CASE_ST[from], OV_CASE_ST[to], (to === 1 && o.canal) ? 'canal ' + o.canal : (to === 4 && o.verif) ? 'vérification ' + o.verif : '');
+      SESSION.dirty = true;
+      if (TAB === 'cases') { render(); if (OV_CASE_OPEN === key) { const c = ovCaseResolve(key); if (c) ovCaseDrawer(c); } } else render();
     });
   }
-  function ovCasesDrawer() {
-    const ok = fv(v => v.valid), all = ovCaseList(ok), S = ovCaseStore();
-    const L = all.filter(c => (OV_CF.tier === 'all' || String(c.tier) === OV_CF.tier) && (OV_CF.st === 'all' || String((S[c.key] || {}).s || 0) === OV_CF.st)).sort((p, q) => (p.tier - q.tier) || String(p.v.date).localeCompare(String(q.v.date)));
-    const sel = (lab, key, opts) => { const s = el('select', { 'aria-label': lab }); opts.forEach(([v, t]) => { const o = el('option', { value: v, text: t }); if (OV_CF[key] === v) o.selected = true; s.appendChild(o); }); s.addEventListener('change', () => { OV_CF[key] = s.value; ovCasesDrawer(); }); return el('label', { class: 'ov-fl' }, [lab + ' ', s]); };
-    const stCell = c => {
-      const o = S[c.key] || { s: 0, c: '' };
-      if (!SESSION.admin) return el('div', null, [el('span', { class: 'ov-st ov-st' + (o.s || 0), text: OV_CASE_ST[o.s || 0] }), o.c ? el('div', { class: 'muted', text: o.c }) : null, o.at ? el('div', { class: 'muted', text: 'le ' + dFrUI(o.at) + ' · ' + (o.by || '—') }) : null]);
-      const s = el('select', { 'aria-label': 'Statut du cas' }); OV_CASE_ST.forEach((t, i) => { const op = el('option', { value: String(i), text: t }); if ((o.s || 0) === i) op.selected = true; s.appendChild(op); });
-      s.addEventListener('change', () => ovSetCase(c.key, { s: +s.value }));
-      const cm = el('input', { type: 'text', placeholder: 'Commentaire court (canal, référence)', 'aria-label': 'Commentaire du cas' }); cm.value = o.c || ''; cm.maxLength = 500;
-      cm.addEventListener('change', () => ovSetCase(c.key, { c: cm.value }));
-      return el('div', { class: 'ov-stedit' }, [s, cm, o.at ? el('div', { class: 'muted', text: 'mis à jour le ' + dFrUI(o.at) + ' · ' + (o.by || '—') }) : null]);
-    };
-    const tb = table([
-      { k: 'd', t: 'Relevé le', fmt: c => dFrUI(c.v.date), sortVal: c => c.v.date }, { k: 'age', t: 'Âge (j)', num: 1, fmt: c => fmt(ovAge(c.v.date)), sortVal: c => ovAge(c.v.date) },
-      { k: 'site', t: 'Activité · site', fmt: c => el('div', null, [el('div', { class: 'ov-b', text: ACT[c.v.act].short + ' · ' + (DICT.site[c.v.site] || '–') }), el('div', { class: 'muted', text: (DICT.district[c.v.district] || '–') + ' · TPM ' + (DICT.org[c.v.org] || '–') + (DICT.imp[c.v.imp] ? ' · MEO ' + DICT.imp[c.v.imp] : '') })]) },
-      { k: 'al', t: 'Alerte', fmt: c => el('div', null, [ovChip(c.tier), ' ' + ovRiskLabel(c.v.act, c.code, c.ri)]), sortVal: c => c.tier },
-      { k: 'st', t: 'Statut', fmt: stCell, sortVal: c => (S[c.key] || {}).s || 0 }
-    ], L.slice(0, 300), {});
-    const n1 = all.filter(c => c.tier === 1), tr = n1.filter(c => S[c.key] && S[c.key].s >= 1).length;
-    ovDrawer('Registre des cas', 'Une ligne par visite et par alerte grave ou à vérifier. La clé (activité, site, jour, alerte) reste la même après une mise à jour des données.', {
-      value: [['Cas dans les filtres', fmt(all.length) + ' : ' + fmt(n1.length) + ' graves, ' + fmt(all.length - n1.length) + ' à vérifier'], ['Cas graves transmis ou plus avancés', nOf(tr, n1.length, 'cas graves')], ['Cas graves de plus de ' + OV_OLD_DAYS + ' jours sans transmission', fmt(n1.filter(c => !(S[c.key] && S[c.key].s >= 1) && ovAge(c.v.date) > OV_OLD_DAYS).length)]],
-      ref: [['Statuts', OV_CASE_ST.join(' · ')], ['Niveaux', ovALERT_TIERS.source]],
-      extra: [xsec('Cas (' + fmt(L.length) + ')', [el('div', { class: 'ov-exp' }, [sel('Niveau', 'tier', [['all', 'Tous'], ['1', 'Graves'], ['2', 'À vérifier']]), sel('Statut', 'st', [['all', 'Tous']].concat(OV_CASE_ST.map((t, i) => [String(i), t])))]),
-        SESSION.admin ? null : el('div', { class: 'ov-exp' }, [el('span', { class: 'muted', text: 'Lecture seule : le statut se modifie en mode administrateur.' }), ovBtn('Modifier les statuts (mot de passe)', () => requireAdmin(ovCasesDrawer))]),
-        ovExportBtns('registre_des_cas', L.map(c => [c.v, c.code])), L.length > 300 ? el('p', { class: 'muted', text: '300 premiers cas affichés ; l’export contient tout.' }) : null, tb,
-        limitBox('Ne saisissez ni nom, ni donnée personnelle, ni description d’une allégation d’exploitation ou d’abus sexuels : indiquez seulement le canal (mécanisme confidentiel) et la date de transmission. Commentaire limité à 500 caractères.', 'warn'),
-        el('p', { class: 'muted', text: 'Les statuts sont enregistrés dans le fichier du tableau de bord (téléchargez le fichier mis à jour dans « Données & mises à jour ») ; une nouvelle extraction ne les efface pas.' })])],
-      formula: 'Cas = une visite exploitable et une alerte grave ou à vérifier. Âge = jours entre la date de la visite et aujourd’hui (' + dFrUI(OV_NOW) + ').',
-      limits: ['Les signaux à confirmer et les problèmes de gestion ne créent pas de cas.', 'Le statut dépend de la saisie : un cas sans statut n’est pas forcément non traité.']
+  function ovParseOrphan(key) {
+    const p = String(key).split('|'); if (p.length < 4) return null;
+    const act = p[0], code = p[p.length - 1], day = p[p.length - 2], site = p.slice(1, p.length - 2).join('|'), tier = ovTier(act, code);
+    if (tier !== 1 && tier !== 2) return null;
+    return { key, v: null, act, code, siteCode: site, ri: RISK.findIndex(r => r.code === code), tier, date: /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : '', present: false };
+  }
+  function ovCaseUniverse() {
+    const m = new Map();
+    ovCaseList(V.filter(v => v.valid)).forEach(c => { c.present = true; c.date = c.v.date; c.act = c.v.act; if (!m.has(c.key)) m.set(c.key, c); });
+    const S = ovCaseStore(); Object.keys(S).forEach(k => { if (m.has(k)) return; const o = ovParseOrphan(k); if (o) m.set(k, o); });
+    return m;
+  }
+  function ovCaseResolve(key) { return ovCaseUniverse().get(key) || ovParseOrphan(key); }
+  function ovCaseMedianDelay(cases, S) {
+    const d = []; cases.forEach(c => { const o = S[c.key]; if (!o || !ovStClosed(ovCaseS(o))) return; const close = ovCloseDay(o); if (!c.date || !close) return; const n = Math.round((Date.parse(close) - Date.parse(c.date)) / 864e5); if (isFinite(n) && n >= 0) d.push(n); });
+    return { n: d.length, med: median(d) };
+  }
+  const ovCaseStatusBadge = s => el('span', { class: 'ov-st ov-st' + s, text: OV_CASE_ST[s] });
+  const OV_LOG_H = ['Date', 'Activité', 'Alerte', 'De', 'À', 'Auteur', 'Note', 'Clé du cas'];
+  function ovLogRows() {
+    return ovCaseLog().map(e => { const p = String(e.key || '').split('|'), act = p[0] || '', code = p[p.length - 1] || '', ri = RISK.findIndex(r => r.code === code);
+      return [e.at || '', ACT[act] ? ACT[act].short : act, ri >= 0 ? ovRiskLabel(act, code, ri) : code, e.from || '', e.to || '', e.by || '', e.note || '', e.key || '']; });
+  }
+  function ovJournalBtns() {
+    const n = ovCaseLog().length;
+    const b1 = ovBtn('Journal CSV', () => requireAdmin(() => downloadBlob(csvBlob(OV_LOG_H, ovLogRows()), 'journal_des_cas_' + OV_NOW + '.csv')), 'sm');
+    const b2 = ovBtn('Journal Excel', () => requireAdmin(() => downloadBlob(xlsxBlob([{ name: 'Journal des cas', header: OV_LOG_H, rows: ovLogRows() }]), 'journal_des_cas_' + OV_NOW + '.xlsx')), 'sm');
+    bindTip(b1, () => fmt(n) + ' changement(s) de statut enregistrés : clé du cas, de → à, date, auteur.');
+    return el('div', { class: 'ov-exp' }, [el('span', { class: 'ov-lead', text: 'Journal des changements (' + fmt(n) + ')' }), b1, b2]);
+  }
+  function ovCaseRead(o, s) {
+    return [kvList([['Statut', OV_CASE_ST[s]], ['Canal de transmission', o.canal || '–'], ['Responsable', o.resp || '–'], ['Action / décision', ovCaseAction(o) || '–'], ['Résolution', (o.res ? ovClean(o.res, 500) : '') || '–'],
+      ['Date de clôture', ovDay(o.closeAt) ? dFrUI(o.closeAt) : '–'], ['Vérification', o.verif === 'oui' ? 'Oui' + (ovDay(o.verifAt) ? ' le ' + dFrUI(o.verifAt) : '') : o.verif === 'non' ? 'Non' : '–'], ['Dernière mise à jour', o.at ? dFrUI(o.at) + ' · ' + (o.by || '—') : '–']])];
+  }
+  function ovCaseForm(c, o, s) {
+    const key = c.key, wrap = el('div', { class: 'ov-cform' });
+    const line = (lab, node) => el('label', { class: 'ov-cfl' }, [el('span', { class: 'ov-cfk', text: lab }), node]);
+    const opt = (par, arr, cur, labFn) => arr.forEach(x => { const op = el('option', { value: String(x), text: labFn ? labFn(x) : (x === '' ? '(aucun)' : x) }); if (String(cur) === String(x)) op.selected = true; par.appendChild(op); });
+    const stSel = el('select', { 'aria-label': 'Statut du cas' }); opt(stSel, OV_CASE_ST.map((t, i) => i), s, i => OV_CASE_ST[i]); stSel.addEventListener('change', () => ovSetCase(key, { s: +stSel.value }));
+    const caSel = el('select', { 'aria-label': 'Canal de transmission' }); opt(caSel, OV_CANAUX, o.canal || ''); caSel.addEventListener('change', () => ovSetCase(key, { canal: caSel.value }));
+    const reSel = el('select', { 'aria-label': 'Responsable' }); opt(reSel, OV_RESP, o.resp || ''); reSel.addEventListener('change', () => ovSetCase(key, { resp: reSel.value }));
+    const ac = el('textarea', { 'aria-label': 'Action ou décision', placeholder: 'Action ou décision (canal, référence), sans nom ni donnée personnelle' }); ac.value = ovCaseAction(o); ac.maxLength = 500; ac.rows = 2; ac.addEventListener('change', () => ovSetCase(key, { action: ac.value }));
+    const rs = el('textarea', { 'aria-label': 'Résolution', placeholder: 'Résolution (résumé court)' }); rs.value = o.res ? ovClean(o.res, 500) : ''; rs.maxLength = 500; rs.rows = 2; rs.addEventListener('change', () => ovSetCase(key, { res: rs.value }));
+    const cd = el('input', { type: 'date', 'aria-label': 'Date de clôture' }); cd.value = ovDay(o.closeAt); cd.addEventListener('change', () => ovSetCase(key, { closeAt: cd.value }));
+    const vf = el('select', { 'aria-label': 'Vérification' }); [['', '–'], ['oui', 'Oui'], ['non', 'Non']].forEach(([v, t]) => { const op = el('option', { value: v, text: t }); if ((o.verif || '') === v) op.selected = true; vf.appendChild(op); }); vf.addEventListener('change', () => ovSetCase(key, { verif: vf.value }));
+    const vd = el('input', { type: 'date', 'aria-label': 'Date de vérification' }); vd.value = ovDay(o.verifAt); vd.addEventListener('change', () => ovSetCase(key, { verifAt: vd.value }));
+    const quick = el('div', { class: 'ov-exp ov-cq' }, [
+      s < 1 ? ovBtn('Transmettre', () => ovSetCase(key, { s: 1 }), 'sm on') : null,
+      !ovStClosed(s) ? ovBtn('Clôturer', () => ovSetCase(key, { s: 3 }), 'sm') : null,
+      s === 3 ? ovBtn('Marquer vérifié', () => ovSetCase(key, { s: 4, verif: 'oui' }), 'sm') : null,
+      s === 0 ? ovBtn('Sans suite', () => ovSetCase(key, { s: 5 }), 'sm') : null,
+      s !== 0 ? ovBtn('Rouvrir', () => ovSetCase(key, { s: 0 }), 'sm') : null
+    ].filter(Boolean));
+    add(wrap, [quick, line('Statut', stSel), line('Canal', caSel), line('Responsable', reSel), line('Action / décision', ac), line('Résolution', rs), line('Date de clôture', cd), el('div', { class: 'ov-cfl2' }, [line('Vérification', vf), line('Date de vérification', vd)])]);
+    return [wrap, limitBox('Pas de nom, de téléphone ni de donnée personnelle de bénéficiaire, et aucune description d’allégation d’abus : indiquez le canal, le rôle responsable et la décision. Les emails et numéros saisis sont retirés ; 500 caractères au plus.', 'warn')];
+  }
+  function ovCaseDrawer(c) {
+    OV_CASE_OPEN = c.key;
+    const S = ovCaseStore(), o = (S[c.key] && typeof S[c.key] === 'object') ? S[c.key] : {}, s = ovCaseS(o);
+    const act = c.v ? c.v.act : c.act, q = D.riskQ[act + '|' + c.code] || {}, d = ovTierDef(c.tier);
+    const kids = [el('div', { class: 'ov-cd-head' }, [ovCaseStatusBadge(s), ovChip(c.tier), el('span', { class: 'muted', text: 'relevé le ' + dFrUI(c.date) + ' · ' + (c.date ? fmt(ovAge(c.date)) + ' j' : 'date inconnue') })])];
+    if (!c.present) kids.push(limitBox('Visite absente de la dernière extraction : les détails viennent du suivi enregistré ; l’historique est conservé.', 'warn'));
+    const vdet = [];
+    if (c.v) {
+      const v = c.v, st = ovSiteOf(v), other = v.risks.filter(r => RISK[r].code !== c.code);
+      vdet.push(['Site', (DICT.site[v.site] || '–') + (st.code ? ' · code ' + st.code : '')], ['District · région', (DICT.district[v.district] || '–') + ' · ' + (DICT.region[v.region] || '–')], ['Bureau', DICT.fo[v.fo] || '–'],
+        ['Partenaire de suivi (TPM)', DICT.org[v.org] || '–'], ['Partenaire de mise en œuvre', DICT.imp[v.imp] || '–'], ['Agent(s)', (v.enus || []).filter(e => e !== OV_NR).map(e => DICT.enu[e]).join(', ') || '–'],
+        ['Score de la visite', ovNum(v.score) ? fmt(v.score, 1) + ' / 100' : 'non calculé'], ['Autres alertes de la visite', other.length ? other.map(r => ovRiskLabel(v.act, r) + ' (' + ovTierDef(ovTier(v.act, RISK[r].code)).short + ')').join(' ; ') : 'aucune']);
+    } else {
+      vdet.push(['Activité', ACT[act] ? ACT[act].label : act], ['Date de la visite', dFrUI(c.date) || '–'], ['Code du site', c.siteCode || '–']);
+    }
+    kids.push(xsec('Visite', [kvList(vdet)]));
+    kids.push(xsec('Alerte', [el('div', { class: 'ov-li' }, [ovChip(c.tier), ' ', el('b', { text: ovRiskLabel(act, c.code, c.ri) }),
+      el('div', { class: 'muted', text: 'Question : « ' + (q.q || c.code) + ' » — réponse comptée comme alerte : « ' + (q.ans || 'Oui') + ' »' }),
+      el('div', { class: 'muted', text: 'Niveau : ' + d.name + '. ' + d.rule + '.' }),
+      RISK_HOW[c.code] ? el('div', { class: 'ov-how', text: 'Que faire : ' + RISK_HOW[c.code] }) : null])]));
+    kids.push(xsec('Suivi de la clôture', SESSION.admin ? ovCaseForm(c, o, s) : ovCaseRead(o, s)));
+    const log = ovCaseLog().filter(e => e && e.key === c.key).slice().reverse();
+    kids.push(xsec('Historique', log.length ? [el('ul', { class: 'ov-jrnl' }, log.map(e => el('li', null, [el('b', { text: dFrUI(e.at) }), ' ',
+      el('span', { text: (e.from && e.to && e.from !== e.to) ? e.from + ' → ' + e.to : (e.to || '') }), e.note ? el('span', { class: 'muted', text: ' · ' + e.note }) : null, el('span', { class: 'muted', text: ' · ' + (e.by || '—') })])))] : [el('p', { class: 'muted', text: 'Aucun changement de statut enregistré.' })]));
+    if (!SESSION.admin) kids.push(el('div', { class: 'ov-exp' }, [el('span', { class: 'muted', text: 'Lecture seule : le suivi se modifie en mode administrateur.' }), ovBtn('Modifier (mot de passe)', () => requireAdmin(() => { const cc = ovCaseResolve(c.key); if (cc) ovCaseDrawer(cc); }))]));
+    openDrawer(ovRiskLabel(act, c.code, c.ri) + ' – ' + (ACT[act] ? ACT[act].short : act), ovGravLabel(c.tier) + ' · suivi de la clôture', kids);
+  }
+  const ovGravLabel = t => t === 1 ? 'Alerte grave' : 'Alerte à vérifier';
+  function ovRenderCases(main) {
+    const S = ovCaseStore();
+    const Lf = ovCaseList(fv(v => v.valid)); Lf.forEach(c => { c.present = true; c.date = c.v.date; c.act = c.v.act; });
+    const allKeys = new Set(ovCaseList(V.filter(v => v.valid)).map(c => c.key));
+    const orphans = Object.keys(S).filter(k => !allKeys.has(k)).map(ovParseOrphan).filter(Boolean);
+    const stOf = c => ovCaseS(S[c.key]);
+    const tot = Lf.length;
+    const open = Lf.filter(c => ovStOpen(stOf(c))), closed = Lf.filter(c => ovStClosed(stOf(c))), sansSuite = Lf.filter(c => stOf(c) === 5), done = Lf.filter(c => ovStDone(stOf(c)));
+    const lateT = Lf.filter(c => c.tier === 1 && stOf(c) === 0 && ovAge(c.date) > OV_SLA_T);
+    const lateC = Lf.filter(c => ovStOpen(stOf(c)) && ovAge(c.date) > OV_OLD_DAYS);
+    const lateKeys = new Set(lateT.concat(lateC).map(c => c.key)), late = lateKeys.size;
+    const md = ovCaseMedianDelay(Lf, S);
+    const byTier = arr => fmt(arr.filter(c => c.tier === 1).length) + ' graves, ' + fmt(arr.filter(c => c.tier === 2).length) + ' à vérifier';
+    main.appendChild(el('div', { class: 'kpis' }, [
+      ovTile({ l: 'Ouverts', v: fmt(open.length), c: open.length ? 'mid' : null, s: 'sur ' + fmt(tot) + ' cas', i: 'Cas non clos (ouvert, transmis ou en cours) : ' + nOf(open.length, tot, 'cas') + '. ' + byTier(open) + '. ' + ovALERT_TIERS.source + '.' }),
+      ovTile({ l: 'Clos', v: fmt(closed.length), c: closed.length ? 'good' : null, s: sansSuite.length ? '+ ' + fmt(sansSuite.length) + ' sans suite' : 'sur ' + fmt(tot) + ' cas', i: 'Cas clos ou vérifiés : ' + nOf(closed.length, tot, 'cas') + '. Classés sans suite : ' + fmt(sansSuite.length) + '. ' + byTier(closed) + '.' }),
+      ovTile({ l: 'En retard', v: fmt(late), c: late ? 'bad' : null, s: 'à traiter', i: 'Alerte grave non transmise après ' + OV_SLA_T + ' jours : ' + fmt(lateT.length) + '. Cas non clos de plus de ' + OV_OLD_DAYS + ' jours : ' + fmt(lateC.length) + '. Total sans doublon : ' + nOf(late, tot, 'cas') + '.' }),
+      ovTile({ l: 'Délai médian de clôture', v: md.n ? fmt(md.med, 0) + ' j' : 'n.c.', c: null, s: md.n ? 'sur ' + fmt(md.n) + ' cas clos' : 'aucun cas clos', i: md.n ? 'Médiane des jours entre la date de la visite (ouverture) et la date de clôture, sur ' + nOf(md.n, tot, 'cas clos') + '.' : 'Aucun cas clos dans les filtres : délai non calculable.' }),
+      ovTile({ l: 'Taux de clôture', v: tot ? pct(done.length / tot * 100, 0) : '–', s: fmt(done.length) + '/' + fmt(tot), i: 'Cas clos, vérifiés ou classés sans suite ÷ total : ' + nOf(done.length, tot, 'cas') + '. ' + byTier(done) + '.' })
+    ]));
+    const bar = el('div', { class: 'ov-cf' });
+    const sel = (lab, key, opts) => { const sl = el('select', { 'aria-label': lab }); opts.forEach(([v, t]) => { const op = el('option', { value: v, text: t }); if (String(OV_CF2[key]) === String(v)) op.selected = true; sl.appendChild(op); }); sl.addEventListener('change', () => { OV_CF2[key] = sl.value; render(); }); return el('label', { class: 'ov-fl' }, [lab + ' ', sl]); };
+    const search = el('input', { type: 'text', placeholder: 'Rechercher un site, un district, une alerte…', 'aria-label': 'Rechercher' }); search.value = OV_CF2.q; search.maxLength = 60; search.addEventListener('change', () => { OV_CF2.q = search.value.slice(0, 60); render(); });
+    const lateCb = el('input', { type: 'checkbox', 'aria-label': 'En retard seulement' }); lateCb.checked = !!OV_CF2.late; lateCb.addEventListener('change', () => { OV_CF2.late = lateCb.checked; render(); });
+    add(bar, [sel('Statut', 'st', [['all', 'Tous']].concat(OV_CASE_ST.map((t, i) => [String(i), t]))), sel('Niveau', 'tier', [['all', 'Tous'], ['1', 'Graves'], ['2', 'À vérifier']]),
+      sel('Canal', 'canal', [['all', 'Tous'], ['', '(aucun)']].concat(OV_CANAUX.filter(Boolean).map(x => [x, x]))), sel('Responsable', 'resp', [['all', 'Tous'], ['', '(aucun)']].concat(OV_RESP.filter(Boolean).map(x => [x, x]))),
+      el('label', { class: 'ov-fl ov-fl-cb' }, [lateCb, ' En retard seulement']), el('label', { class: 'ov-fl ov-fl-q' }, [search])]);
+    const q = (OV_CF2.q || '').toLowerCase().trim();
+    const rows = Lf.filter(c => {
+      const s = stOf(c), o = S[c.key] || {};
+      if (OV_CF2.st !== 'all' && String(s) !== OV_CF2.st) return false;
+      if (OV_CF2.tier !== 'all' && String(c.tier) !== OV_CF2.tier) return false;
+      if (OV_CF2.canal !== 'all' && (o.canal || '') !== OV_CF2.canal) return false;
+      if (OV_CF2.resp !== 'all' && (o.resp || '') !== OV_CF2.resp) return false;
+      if (OV_CF2.late && !lateKeys.has(c.key)) return false;
+      if (q && (ACT[c.v.act].short + ' ' + (DICT.site[c.v.site] || '') + ' ' + (DICT.district[c.v.district] || '') + ' ' + ovRiskLabel(c.v.act, c.code, c.ri) + ' ' + ovCaseAction(o)).toLowerCase().indexOf(q) < 0) return false;
+      return true;
     });
+    const CAP = 400;
+    const cols = [
+      { k: 'd', t: 'Date', fmt: c => dFrUI(c.date), sortVal: c => c.date },
+      { k: 'age', t: 'Âge (j)', num: 1, fmt: c => { const sp = el('span', { class: lateKeys.has(c.key) ? 'ov-plain ov-tr-up' : 'ov-plain', text: fmt(ovAge(c.date)) }); if (lateKeys.has(c.key)) bindTip(sp, () => 'En retard : ' + (c.tier === 1 && stOf(c) === 0 && ovAge(c.date) > OV_SLA_T ? 'alerte grave non transmise après ' + OV_SLA_T + ' j' : 'cas non clos depuis plus de ' + OV_OLD_DAYS + ' j')); return sp; }, sortVal: c => ovAge(c.date) },
+      { k: 'site', t: 'Activité · site', fmt: c => el('div', null, [el('div', { class: 'ov-b', text: ACT[c.v.act].short + ' · ' + (DICT.site[c.v.site] || '–') }), el('div', { class: 'muted', text: 'TPM ' + (DICT.org[c.v.org] || '–') + (DICT.imp[c.v.imp] ? ' · MEO ' + DICT.imp[c.v.imp] : '') })]), sortVal: c => DICT.site[c.v.site] || '' },
+      { k: 'dist', t: 'District', fmt: c => (DICT.district[c.v.district] || '–'), sortVal: c => DICT.district[c.v.district] || '' },
+      { k: 'al', t: 'Alerte', fmt: c => el('div', null, [ovChip(c.tier), ' ' + ovRiskLabel(c.v.act, c.code, c.ri)]), sortVal: c => ovRiskLabel(c.v.act, c.code, c.ri) },
+      { k: 'st', t: 'Statut', fmt: c => ovCaseStatusBadge(stOf(c)), sortVal: c => stOf(c) },
+      { k: 'resp', t: 'Responsable', fmt: c => (S[c.key] || {}).resp || '–', sortVal: c => (S[c.key] || {}).resp || '' },
+      { k: 'ac', t: 'Dernière action', fmt: c => { const o = S[c.key] || {}, a = ovCaseAction(o); if (!a) return el('span', { class: 'muted', text: '–' }); const sp = el('span', { class: 'ov-trunc', text: a.length > 48 ? a.slice(0, 47) + '…' : a }); bindTip(sp, () => a + (o.at ? '\nmis à jour le ' + dFrUI(o.at) + ' · ' + (o.by || '—') : '')); return sp; }, sortVal: c => ovCaseAction(S[c.key] || {}) }
+    ];
+    const lead = fmt(rows.length) + (rows.length > 1 ? ' cas' : ' cas') + (rows.length !== tot ? ' sur ' + fmt(tot) : '');
+    main.appendChild(ovCard('Cas à suivre', 'Un cas = une visite exploitable et une alerte grave ou à vérifier. Activité, période et zone se règlent dans la barre de filtres en haut. Cliquez une ligne pour le détail et le suivi. ' + ovALERT_TIERS.source + '.', [
+      bar,
+      ovExportBtns('registre_des_cas', rows.map(c => [c.v, c.code]), lead),
+      ovJournalBtns(),
+      rows.length > CAP ? el('p', { class: 'muted', text: fmt(CAP) + ' premiers cas affichés (triés par âge) ; l’export contient les ' + fmt(rows.length) + '.' }) : null,
+      rows.length ? table(cols, rows.slice(0, CAP), { sortK: 1, dir: -1, onRow: c => ovCaseDrawer(c) }) : el('p', { class: 'hint', text: 'Aucun cas pour ces filtres.' })
+    ], 'wide'));
+    if (orphans.length) {
+      main.appendChild(ovCard('Visites absentes de la dernière extraction', 'Cas dont la visite n’apparaît plus dans les données chargées. Leur historique est conservé ; ils réapparaissent si la visite revient.', [el('p', { class: 'muted', text: fmt(orphans.length) + ' cas conservés.' }), table([
+        { k: 'd', t: 'Date', fmt: c => dFrUI(c.date), sortVal: c => c.date },
+        { k: 'al', t: 'Activité · alerte', fmt: c => (ACT[c.act] ? ACT[c.act].short : c.act) + ' · ' + ovRiskLabel(c.act, c.code, c.ri) },
+        { k: 'st', t: 'Statut', fmt: c => ovCaseStatusBadge(ovCaseS(S[c.key])), sortVal: c => ovCaseS(S[c.key]) },
+        { k: 'ac', t: 'Dernière action', fmt: c => { const a = ovCaseAction(S[c.key]); return a ? (a.length > 60 ? a.slice(0, 59) + '…' : a) : '–'; } }
+      ], orphans, { sortK: 0, dir: -1, onRow: c => ovCaseDrawer(c) })], 'wide'));
+    }
   }
   function ovVisitsDrawer(ok, all, bad) { const FI = ovFiches(ok), EX = ovExclusions(bad); return ovDrawer('Visites exploitables', 'Unité : la visite (fiches d’une même activité, même site, même jour)', { value: [['Visites exploitables', nOf(ok.length, all.length, 'visites dans les filtres')], ['Fiches des visites exploitables', fmt(FI.all) + ' dont ' + fmt(FI.valid) + ' exploitables'], ['Visites écartées', fmt(bad.length)], ['Motifs', ovExclText(EX)]],
           ref: 'Fenêtre de validité des dates : ' + winLabel() + '.', formula: 'Visite exploitable = au moins une fiche exploitable (non vide, datée dans la fenêtre de validité, hors test). Une visite regroupe les fiches de la même activité, du même site et du même jour (ex. SMP : direction + cuisiniers + observation).', limits: ['Une visite sans date passe tous les filtres de période.', 'Les fiches de l’ancienne version d’un formulaire (en-tête seul) sont écartées : ce n’est pas une défaillance du terrain.'] }); }
@@ -741,7 +898,7 @@
       'Lecture : bon à partir de ' + THR.good + ', à améliorer de ' + THR.mid + ' à ' + THR.good + ', insuffisant sous ' + THR.mid + '. Ce sont des seuils internes à l’outil, en attendant une cible validée.', 'Le score ne se compare pas d’une activité à l’autre, car les questionnaires diffèrent. Une moyenne toutes activités dépend du mélange des activités.'] });
     S.push({ t: 'Alertes', items: ['Une visite a une alerte quand au moins une de ses fiches donne la réponse d’alerte à une question de la liste de l’activité.', 'Couleurs : grave en rouge dès un cas, à vérifier en orange dès un cas puis rouge au-delà de ' + THR.rHigh + ' % des visites. Pour le reste, peu fréquentes jusqu’à ' + THR.rLow + ' %, fréquentes jusqu’à ' + THR.rHigh + ' %, très fréquentes au-delà.', ovALERT_TIERS.source + '.']
       .concat(ovALERT_TIERS.levels.map(l => l.name + ' : ' + l.what + '. Règle : ' + l.rule + '. Questions : ' + (Object.keys(D.riskQ).filter(k => ovTier(k.split('|')[0], k.slice(k.indexOf('|') + 1)) === l.id).map(k => ACT[k.split('|')[0]].short + ', ' + ovLow(ovRiskLabel(k.split('|')[0], k.slice(k.indexOf('|') + 1), RISK.findIndex(r => r.code === k.slice(k.indexOf('|') + 1))))).join(' ; ') || 'aucune') + '.'))
-      .concat(['Un cas est une visite avec une alerte grave ou à vérifier. Il garde la même clé (activité, site, jour, alerte) d’une mise à jour à l’autre. On enregistre son statut, la date, l’auteur et un commentaire de ' + 500 + ' caractères au plus.', 'Tendance : part des visites avec l’alerte sur les 3 derniers mois de la période, comparée aux 3 mois précédents. Elle est dite stable sous ' + OV_TREND_PTS + ' points et n’est pas calculée sous ' + SMALL_N.low + ' visites par période.']) });
+      .concat(['Un cas est une visite avec une alerte grave ou à vérifier. Il garde la même clé (activité, site, jour, alerte) d’une mise à jour à l’autre : son suivi survit aux nouvelles extractions, et une visite disparue est signalée au lieu d’être effacée.', 'Suivi de la clôture (onglet Cas à suivre) : statut ' + OV_CASE_ST.join(' → ').replace(' → Sans suite', ', ou sans suite') + ', avec canal, responsable, action, date et vérification. Chaque changement de statut est inscrit dans un journal non modifiable (date et auteur). Aucune donnée personnelle : emails et numéros retirés, ' + 500 + ' caractères au plus.', 'Tendance : part des visites avec l’alerte sur les 3 derniers mois de la période, comparée aux 3 mois précédents. Elle est dite stable sous ' + OV_TREND_PTS + ' points et n’est pas calculée sous ' + SMALL_N.low + ' visites par période.']) });
     S.push({ t: 'Petits effectifs', items: ['Sous ' + SMALL_N.min + ' observations, la valeur n’est pas calculée. De ' + SMALL_N.min + ' à ' + (SMALL_N.low - 1) + ', elle est grisée et ne sert ni aux couleurs ni aux classements. À partir de ' + SMALL_N.low + ', affichage normal.', 'Un domaine n’est retenu comme point faible que s’il est renseigné dans au moins ' + SMALL_N.low + ' visites et ' + pct(OV_DOM_SHARE * 100, 0) + ' des visites de l’activité.'] });
     S.push({ t: 'Couverture, priorités, stocks', items: [typeof covDefinition === 'function' ? covDefinition() : 'Couverture du plan : sites actifs du plan vus au moins une fois sur les sites actifs du plan.', 'Aucune cible de couverture n’est définie : la valeur n’est pas colorée.',
       'Visites prioritaires : ' + ovPrioCritTxt('both') + '. Elles sont triées par alertes graves, puis alertes à vérifier, puis score le plus bas, à l’écran comme dans le rapport.', 'Les effectifs (élèves, enfants inscrits) sont pris au dernier relevé de chaque site et ne s’additionnent pas d’une visite à l’autre. Seuls les flux (admissions, sorties) s’additionnent.'] });
@@ -906,3 +1063,4 @@
       el('p', { class: 'r-small', text: 'Toute la période. « Non mesuré » : l’extraction ne donne pas l’heure de début et de fin des fiches de cette activité.' })])];
   }
   function ovRepMethod() { return ovMethodSections().map(s => rblock(s.t, [el('ul', { class: 'r-list' }, s.items.map(t => el('li', { text: t })))])).concat([rblock('Méthodologie du recalcul', [el('ul', { class: 'r-list' }, (D.method || []).map(t => el('li', { text: t })))])]); }
+  if (window.__dash) window.__dash.ovCases = { setCase: ovSetCase, resolve: ovCaseResolve, universe: ovCaseUniverse, store: ovCaseStore, log: ovCaseLog, go: ovGoCases, status: OV_CASE_ST, list: ovCaseList, fv };   /*DEBUG*/

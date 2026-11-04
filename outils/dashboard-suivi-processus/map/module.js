@@ -435,6 +435,147 @@
     });
   }
 
+  // ---------------------------------------------------------------- export image (carte → PNG / SVG, hors ligne, sans dépendance)
+  // Deux fonctions réutilisables, déclarées dans le scope de boot (d'autres lots peuvent les appeler pour exporter leurs graphiques) :
+  //   mapExportSvg(svgEl, opts)        → chaîne SVG autonome (titre, sous-titre, légende, filtres, date, source). opts = { title, subtitle, source, legend | legendEl, width, viewBox }.
+  //   mapSvgToPng(svgEl, opts, cb)     → sérialise le SVG, le charge dans Image() via data:, le dessine net (×scale) sur un canvas, puis cb(blob, svgString). opts = { scale, width, + opts de mapExportSvg }.
+  // Sécurité : aucun réseau, aucune ressource distante ; que du data:/blob:. Texte via sv()/textContent (les noms de terrain ne sont jamais injectés en HTML).
+  function mapCssVar(name, fallback) { try { const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim(); return v || fallback; } catch (e) { return fallback; } }
+  function mapB64(str) { try { return btoa(unescape(encodeURIComponent(str))); } catch (e) { return btoa(str); } }
+  function mapEstW(text, size, bold) { return String(text == null ? '' : text).length * size * (bold ? 0.58 : 0.52); }   // largeur approximative d'un texte (sans mesure DOM, suffisante pour l'habillage de la légende et du sous-titre)
+  function mapWrapText(text, size, maxW, bold) {
+    const words = String(text || '').split(/\s+/).filter(Boolean), lines = []; let cur = '';
+    words.forEach(w => { const t = cur ? cur + ' ' + w : w; if (cur && mapEstW(t, size, bold) > maxW) { lines.push(cur); cur = w; } else cur = t; });
+    if (cur) lines.push(cur); return lines.length ? lines : [''];
+  }
+  // lit la légende telle qu'affichée (une seule source de vérité) : titres, pastilles de couleur et libellés avec leurs comptes
+  function mapExportLegend(legEl) {
+    const out = [];
+    if (!legEl) return out;
+    Array.from(legEl.childNodes).forEach(ch => {
+      if (ch.nodeType !== 1) return;
+      const tag = (ch.tagName || '').toLowerCase();
+      if (tag === 'b') { out.push({ type: 'head', label: ch.textContent || '' }); return; }
+      if (ch.classList && ch.classList.contains('mapx-sep')) { out.push({ type: 'sep' }); return; }
+      if (ch.classList && ch.classList.contains('mapx-li')) {
+        const sw = ch.querySelector('.mapx-sw'), fb = ch.querySelector('.mapx-fb');
+        let color = MAP_GREY, stroke = null, box = false, hatch = false;
+        if (sw) { const f = sw.querySelector('[fill]'); if (f) color = f.getAttribute('fill'); const st = sw.querySelector('[stroke]'); if (st) stroke = st.getAttribute('stroke'); }
+        else if (fb) { box = true; hatch = fb.classList.contains('mapx-hb'); color = (fb.style && fb.style.background) || MAP_GREY; }
+        out.push({ type: 'item', label: (ch.textContent || '').trim(), color: color, stroke: stroke, box: box, hatch: hatch });
+      }
+    });
+    return out;
+  }
+  function mapInlineTextStyles(root, muted, soft) {   // dans le SVG exporté (document isolé), le CSS de la page ne s'applique pas : on pose les styles des textes en attributs de présentation
+    root.querySelectorAll('.mapx-lab text').forEach(t => { t.setAttribute('fill', muted); t.setAttribute('stroke', soft); t.setAttribute('stroke-width', '2.5'); t.setAttribute('paint-order', 'stroke'); t.setAttribute('stroke-linejoin', 'round'); t.setAttribute('font-size', '10'); t.setAttribute('font-weight', '500'); t.setAttribute('opacity', '0.9'); });
+    root.querySelectorAll('.mapx-cn').forEach(t => { t.setAttribute('fill', '#ffffff'); t.setAttribute('font-size', '10'); t.setAttribute('font-weight', '700'); t.setAttribute('paint-order', 'stroke'); t.setAttribute('stroke', 'rgba(0,0,0,.35)'); t.setAttribute('stroke-width', '2'); });
+    root.querySelectorAll('.mapx-bn').forEach(t => { t.setAttribute('fill', t.classList.contains('w') ? '#ffffff' : '#1b2430'); t.setAttribute('font-size', '10.5'); t.setAttribute('font-weight', '700'); });
+  }
+  function mapExportSvg(svgEl, opts) {
+    opts = opts || {};
+    const W = Math.max(640, Math.round(opts.width || 1600));
+    const ink = mapCssVar('--ink', '#141a22'), muted = mapCssVar('--muted', '#596679'), line = mapCssVar('--line', '#e4e8ef');
+    const card = mapCssVar('--card', '#ffffff'), soft = mapCssVar('--soft', '#ffffff') || '#ffffff';
+    const pad = 28, innerW = W - pad * 2;
+    // vue à exporter : opts.viewBox si fourni ; sinon, pour LA carte, la vue courante (ce que l'utilisateur voit) ; sinon le viewBox propre du SVG (réutilisable pour un graphique d'un autre lot)
+    const mv = (typeof MAPV !== 'undefined' && MAPV) ? MAPV : null;
+    let vbStr;
+    if (opts.viewBox) vbStr = opts.viewBox;
+    else if (mv && svgEl === mv.svg && mv.vb && mv.vb.w > 0 && mv.vb.h > 0) { const b = mv.vb; vbStr = b.x.toFixed(4) + ' ' + b.y.toFixed(4) + ' ' + b.w.toFixed(4) + ' ' + b.h.toFixed(4); }
+    else vbStr = (svgEl && svgEl.getAttribute('viewBox')) || '0 0 800 600';
+    const pp = vbStr.split(/\s+/).map(Number), ar = (pp.length === 4 && pp[3] > 0) ? pp[2] / pp[3] : 800 / 600;
+    const mapW = innerW, mapH = Math.round(mapW / ar);
+    const titleSize = 27, subSize = 15, lineH = 22;
+    let y = pad;
+    const head = [];
+    if (opts.title) { const t = sv('text', { x: pad, y: y + titleSize, 'font-size': titleSize, 'font-weight': 700, fill: ink }); t.textContent = opts.title; head.push(t); y += titleSize + 10; }
+    if (opts.subtitle) { mapWrapText(opts.subtitle, subSize, innerW).forEach((ln, i) => { const t = sv('text', { x: pad, y: y + subSize + i * lineH, 'font-size': subSize, fill: muted }); t.textContent = ln; head.push(t); if (i) y += 0; }); y += mapWrapText(opts.subtitle, subSize, innerW).length * lineH + 4; }
+    const mapY = y + 2;
+    // légende : positions calculées (habillage sur plusieurs lignes)
+    const leg = Array.isArray(opts.legend) ? opts.legend : mapExportLegend(opts.legendEl);
+    const legSize = 15, legLineH = 26, swR = 6.5, swGap = 9, itemGap = 22, headGap = 12;
+    const legY0 = mapY + mapH + 22; let lx = pad, row = 1; const legPos = [];
+    leg.forEach(it => {
+      if (it.type === 'sep') { lx += 12; return; }
+      const bold = it.type === 'head', w = (bold ? 0 : swR * 2 + swGap) + mapEstW(it.label, legSize, bold) + (bold ? headGap : itemGap);
+      if (lx > pad && lx + w > W - pad) { lx = pad; row++; }
+      legPos.push({ it, x: lx, row }); lx += w;
+    });
+    const legH = leg.length ? row * legLineH + 6 : 0;
+    const srcY = legY0 + legH + (opts.source ? 16 : 0);
+    const H = Math.round(srcY + pad - (opts.source ? 0 : 10));
+    const root = sv('svg', { viewBox: '0 0 ' + W + ' ' + H, width: W, height: H, 'font-family': "Inter, 'Helvetica Neue', Arial, sans-serif" });
+    root.appendChild(sv('rect', { x: 0, y: 0, width: W, height: H, fill: card }));
+    head.forEach(k => root.appendChild(k));
+    // cadre + carte imbriquée (découpée au viewBox courant)
+    root.appendChild(sv('rect', { x: pad - 1, y: mapY - 1, width: mapW + 2, height: mapH + 2, fill: soft, stroke: line, 'stroke-width': 1, rx: 6 }));
+    const inner = svgEl.cloneNode(true);
+    ['class', 'role', 'aria-label', 'style'].forEach(a => inner.removeAttribute(a));
+    inner.setAttribute('x', pad); inner.setAttribute('y', mapY); inner.setAttribute('width', mapW); inner.setAttribute('height', mapH);
+    inner.setAttribute('viewBox', vbStr); inner.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    mapInlineTextStyles(inner, muted, soft);
+    root.appendChild(inner);
+    // légende dessinée
+    legPos.forEach(p => {
+      const yy = legY0 + (p.row - 1) * legLineH + legSize;
+      if (p.it.type === 'head') { const t = sv('text', { x: p.x, y: yy, 'font-size': legSize, 'font-weight': 700, fill: ink }); t.textContent = p.it.label; root.appendChild(t); return; }
+      const cy = yy - legSize * 0.32;
+      if (p.it.box) { root.appendChild(sv('rect', { x: p.x, y: cy - swR, width: swR * 2.1, height: swR * 1.7, fill: p.it.hatch ? '#c7ced7' : (p.it.color || MAP_GREY), stroke: line, 'stroke-width': 1 })); }
+      else { const white = /^#?f{3,}/i.test(String(p.it.color || '').replace(/\s/g, '')); const stk = white ? (p.it.stroke || '#333333') : (p.it.stroke || '#ffffff'); root.appendChild(sv('circle', { cx: p.x + swR, cy: cy, r: swR, fill: p.it.color || MAP_GREY, stroke: stk, 'stroke-width': 1 })); }
+      const t = sv('text', { x: p.x + swR * 2 + swGap, y: yy, 'font-size': legSize, fill: ink }); t.textContent = p.it.label; root.appendChild(t);
+    });
+    if (opts.source) { const t = sv('text', { x: pad, y: srcY, 'font-size': 12, fill: muted }); t.textContent = opts.source; root.appendChild(t); }
+    return new XMLSerializer().serializeToString(root);
+  }
+  function mapSvgToPng(svgEl, opts, cb) {
+    opts = opts || {}; cb = typeof cb === 'function' ? cb : function () {};
+    let svgStr; try { svgStr = mapExportSvg(svgEl, opts); } catch (e) { cb(null, null, e); return null; }
+    const W = Math.max(640, Math.round(opts.width || 1600)), scale = Math.max(1, +opts.scale || 2);
+    let H = Math.round(W * 0.75); const m = svgStr.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/); if (m && +m[1] > 0) H = Math.round(W * (+m[2]) / (+m[1]));
+    const img = new Image();
+    img.onload = function () {
+      try {
+        const cv = document.createElement('canvas'); cv.width = Math.round(W * scale); cv.height = Math.round(H * scale);
+        const ctx = cv.getContext('2d'); ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, cv.width, cv.height);
+        ctx.drawImage(img, 0, 0, cv.width, cv.height);
+        if (cv.toBlob) cv.toBlob(function (b) { cb(b, svgStr); }, 'image/png');
+        else cb(null, svgStr, new Error('canvas.toBlob indisponible'));
+      } catch (e) { cb(null, svgStr, e); }
+    };
+    img.onerror = function (e) { cb(null, svgStr, e || new Error('chargement SVG')); };
+    img.src = 'data:image/svg+xml;base64,' + mapB64(svgStr);
+    return svgStr;
+  }
+  // options d'export de la carte courante (titre humain, mode de couleur, filtres, légende affichée, date, source discrète)
+  function mapExportOpts(M) {
+    const siteMode = mapIsSiteMode();
+    let modeTitle; try { modeTitle = siteMode ? mapSiteMode(M).title : (MAPP.vis ? mapVisitMode(M).title : 'sites du plan'); } catch (e) { modeTitle = MAPP.mode; }
+    const sub = 'Couleur : ' + modeTitle + '  ·  ' + (filtersActiveText() === 'aucun filtre (tout le fichier)' ? 'Toutes les visites' : 'Filtres : ' + filtersActiveText());
+    return { title: 'Carte des visites', subtitle: sub, legendEl: document.querySelector('.mapx-leg'), source: 'Suivi de processus · PAM Madagascar · exporté le ' + dFrUI(localDay()), width: 1600, scale: 2 };
+  }
+  function mapExportRun(kind) {
+    const svg = MAPV.svg; if (!svg) return;
+    const opts = mapExportOpts(MAPV.M);
+    const base = 'carte_' + String(MAPP.mode || 'act').replace(/[^a-z0-9]+/gi, '') + '_' + localDay();
+    if (kind === 'svg') {
+      try { const str = mapExportSvg(svg, opts); downloadBlob(new Blob([str], { type: 'image/svg+xml;charset=utf-8' }), base + '.svg'); } catch (e) { /* export impossible : rien à télécharger */ }
+    } else {
+      mapSvgToPng(svg, opts, function (blob) { if (blob) downloadBlob(blob, base + '.png'); });
+    }
+  }
+  function mapExportMenu() {
+    const det = el('details', { class: 'mapx-dd mapx-exp' });
+    det.appendChild(el('summary', { class: 'btn', text: 'Exporter l’image ▾' }));
+    const png = mapBtn('Image PNG', () => { det.open = false; mapExportRun('png'); });
+    const svgB = mapBtn('Fichier SVG', () => { det.open = false; mapExportRun('svg'); });
+    det.appendChild(el('div', { class: 'mapx-ddp mapx-expp', role: 'group', 'aria-label': 'Exporter la carte en image' }, [
+      el('p', { class: 'mapx-ddt', text: 'Exporter la carte' }), png, svgB,
+      el('p', { class: 'mapx-exph', text: 'Image prête pour un rapport : titre, légende, filtres et date.' })
+    ]));
+    return det;
+  }
+
   // ---------------------------------------------------------------- rendu de l'onglet
   function mapSel(label, opts, cur, on, title) {
     const s = el('select', { 'aria-label': label, title: title || label });
@@ -489,9 +630,10 @@
         ['—', 'Sites du plan'], ['risk', 'Risque du site'], ['plan', 'Plan du mois']], MAPP.mode, v => { MAPP.mode = v; re(); }),
       M.months.length && mapNeedsMonth() ? mapSel('Mois du plan', M.months.map(m => [m, monthLabel(m)]), M.month, v => { MAPP.month = v; re(); }, 'Mois du plan en cours (horizon réglé dans Planification)') : null,
       det,
-      mapBtn('Recadrer', () => { MAPV.vb = mapAutoFit(MAPV.M); MAPV.manual = false; mapApplyView(true); })
+      mapBtn('Recadrer', () => { MAPV.vb = mapAutoFit(MAPV.M); MAPV.manual = false; mapApplyView(true); }),
+      mapExportMenu()
     ]);
-    bar.lastChild.title = 'Recadrer sur les points affichés';
+    bar.childNodes[bar.childNodes.length - 2].title = 'Recadrer sur les points affichés';
     const sp = mapSitePts(M);
     const vShown = siteMode ? 0 : M.visGeo.length;
     // ---- aucune donnée
@@ -540,7 +682,7 @@
     if (window.ResizeObserver) { MAPV.ro = new ResizeObserver(() => { const b = svg.getBoundingClientRect(); if (b.width > 50 && (Math.abs(b.width - MAPV.W) > 1 || Math.abs(b.height - MAPV.H) > 1)) { MAPV.W = b.width; MAPV.H = b.height; mapRescale(); } }); MAPV.ro.observe(svg); }
     mapViewText();
     main.appendChild(mapRegionTable(M));
-    if (/debug/.test(location.hash)) window.__dashMap = { MAPP, MAPV, model: () => MAPV.M, ms: M.ms, renderMs: Math.round(performance.now() - M.t0) };
+    if (/debug/.test(location.hash)) window.__dashMap = { MAPP, MAPV, model: () => MAPV.M, ms: M.ms, renderMs: Math.round(performance.now() - M.t0), img: { exportSvg: mapExportSvg, toPng: mapSvgToPng, svg: () => MAPV.svg, opts: () => mapExportOpts(MAPV.M), run: mapExportRun } };
   }
 
   // ---------------------------------------------------------------- légende compacte (couche et mode actifs, avec comptes)

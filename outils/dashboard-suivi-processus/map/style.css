@@ -73,3 +73,8 @@
 .mapx-calc{margin:8px 0}
 .mapx-calc>summary{cursor:pointer;color:var(--accent);font-size:12.5px;margin-bottom:6px}
 .mapx-why{margin:6px 0 0;font-size:13px}
+/* export image (lot map) */
+.mapx-expp{min-width:230px;max-width:300px;left:auto;right:0}
+.mapx-expp .btn{width:100%;text-align:left;margin:0}
+.mapx-exph{margin:5px 0 0;font-size:11px;color:var(--muted);line-height:1.35}
+@media print{.mapx-exp{display:none}}

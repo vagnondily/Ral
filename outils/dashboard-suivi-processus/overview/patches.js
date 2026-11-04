@@ -2,6 +2,15 @@
 // Lot « vue d'ensemble » : Vue d'ensemble, Activités, alertes / cas, Méthodologie, Rapport imprimable.
 // Les écrans appellent les fonctions du module (préfixe ov) ; les anciens rendus sont remplacés en bloc.
 module.exports = [
+  { label: 'onglet « Cas à suivre » (suivi de la clôture) ajouté après la Vue d’ensemble',
+    find: "  function buildTabs() {",
+    replace: "  if (!TABS.some(t => t[0] === 'cases')) TABS.splice(1, 0, ['cases', 'Cas à suivre']);   // lot overview : suivi de la clôture des cas\n  function buildTabs() {" },
+  { label: 'render : dispatch de l’onglet « Cas à suivre »',
+    find: "const fn = ({ overview: renderOverview, map: renderMap,",
+    replace: "const fn = ({ overview: renderOverview, cases: ovRenderCases, map: renderMap," },
+  { label: 'render : onglet « Cas à suivre » hors mise en colonnes automatique (table pleine largeur)',
+    find: "    if (!['report', 'map', 'data', 'sites', 'rbm'].includes(TAB)) masonize(main);",
+    replace: "    if (!['report', 'map', 'data', 'sites', 'rbm', 'cases'].includes(TAB)) masonize(main);" },
   { label: 'aides des cartes : définitions calculées à l’affichage (ovDefFor) avant la table figée DEFS',
     find: "  const defFor = t => { const d = DEFS.find(([k]) => t.startsWith(k)); return d ? d[1] : null; };",
     replace: "  const defFor = t => { const o = ovDefFor(t); if (o) return o; const d = DEFS.find(([k]) => t.startsWith(k)); return d ? d[1] : null; };" },

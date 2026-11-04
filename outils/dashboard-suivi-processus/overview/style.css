@@ -83,3 +83,21 @@
 .ov-msec[open]>summary{margin-bottom:6px}
 .ov-msec .find li{margin-bottom:5px}
 .why .w-al,.why .ov-w2{margin-bottom:1px}
+/* ===== suivi de la clôture des cas (onglet dédié) ===== */
+.ov-st5{border-color:var(--muted);color:var(--muted)}
+.ov-cf{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin:2px 0 12px}
+.ov-cf select,.ov-cf input[type=text]{font:inherit;font-size:12.5px;padding:4px 7px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink)}
+.ov-cf .ov-fl-cb{display:flex;align-items:center;gap:4px}
+.ov-cf .ov-fl-q{flex:1 1 220px;min-width:170px}
+.ov-cf .ov-fl-q input{width:100%}
+.ov-trunc{display:inline-block;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.ov-cd-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+.ov-cform{display:flex;flex-direction:column;gap:8px;margin-bottom:6px}
+.ov-cfl{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
+.ov-cfk{font-weight:600;color:var(--ink)}
+.ov-cform select,.ov-cform input,.ov-cform textarea{font:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink);width:100%;box-sizing:border-box}
+.ov-cform textarea{resize:vertical;min-height:40px}
+.ov-cfl2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ov-cq{gap:6px;margin:0 0 6px}
+.ov-jrnl{list-style:none;margin:0;padding:0;font-size:12.5px;display:flex;flex-direction:column;gap:4px}
+.ov-jrnl li{border-left:2px solid var(--line);padding:2px 0 2px 8px}

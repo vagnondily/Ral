@@ -12,6 +12,19 @@
 
 ## État courant
 
+> **04/11 — Dashboard hors ligne v3.4 : import XLSX fiable, classeur RBM, export carte, suivi des cas.** ✅ Livré au
+> propriétaire et archive `outils/dashboard-suivi-processus/` mise à jour (code seul, aucune donnée ; l'archive
+> reconstruit le fichier livré à l'identique). (1) Import des 5 extractions Kobo en XLSX réparé — cause réelle : la
+> colonne de site nommée sans suffixe d'activité (DPName/POIName/Adm4Code_SMP) → sites nuls → visites effondrées ;
+> table d'alias par activité + conversion défensive des dates série Excel. Résultat : SMP 135→1115, PECMAM 150→740,
+> GD 122→295, MIARO 36→64 visites exploitables. (2) Import du classeur « Outil de suivi de la couverture » (RBM) :
+> 1198 sites, fusion non destructive du registre, MMR/RBM par activité, export au même format (round-trip exact).
+> (3) Export de la carte en image PNG/SVG + fonction réutilisable. (4) Nouvel onglet « Cas à suivre » : clôture des
+> cas (Ouvert→Transmis→En cours→Clos→Vérifié / Sans suite), journal, KPIs, export. 13 onglets, 0 erreur ; mise à
+> jour, export et sécurité conformes. Reste demandé par le propriétaire : import DBF (zones admin), simplification
+> Sites/Planification, refonte « plus pro » infographique (ordre de lecture, jauges/sparklines/radar), consolidation
+> multi-bureaux.
+
 > **02/11 — Archive dashboard : import des exports Kobo « en libellés » (test réel Résilience V2.1).** ✅ Mise à jour de
 > `outils/dashboard-suivi-processus/planning/` (moteur d'import : 2ᵉ ligne d'en-tête ignorée, réponses Oui / Non / n/a et
 > listes décodées en codes, région et district par nom, site par nom normalisé, GPS `_HHCoord`) et de `build3.js`. Vérifié

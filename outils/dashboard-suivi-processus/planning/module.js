@@ -664,6 +664,24 @@
     const X = planDots(null); const L = (CUR.planLog || []).map(e => [e.d, e.by, e.code || '(groupe)', e.act ? (ACT[e.act] ? ACT[e.act].short : e.act) : '', e.f, e.scope || '', e.n || 1, e.a === undefined || e.a === null ? '' : String(e.a), e.b === undefined || e.b === null ? '' : String(e.b), e.m || '']);
     downloadBlob(xlsxBlob([{ name: 'monitoring_plan', header: X.header, rows: X.rows }, { name: 'Journal des changements', header: ['Date', 'Par', 'Code POI', 'Activité', 'Champ', 'Portée', 'Sites', 'Avant', 'Après', 'Motif'], rows: L }]), 'co_madagascar_monitoring_plan_' + today() + '_p' + (CUR.planVersion || 0) + '.xlsx');
   }
+  // Export du plan de suivi au format du classeur RBM (feuille Plan_de_suivi : triplets mensuels Active/Prévu/Réel, Sept→Déc).
+  // L'aller-retour Excel → dashboard → Excel est fidèle pour les sites, la géographie, le GPS et la grille des mois actifs.
+  const PL_RBM_TYPE_OUT = { GD: 'GD-PREV', PECMAM: 'MAM', SMP: 'SMP', MIARO: 'STUNT', RES: 'Resilience' };
+  const PL_RBM_MLAB = ['sept', 'oct', 'nov', 'dec', 'janv', 'fev', 'mars', 'avr', 'mai', 'juin', 'juil', 'aout', 'sept', 'oct', 'nov', 'dec'];
+  function plRbmPlanTable() {
+    const PF = D.planFull, pc = k => PF.cols.indexOf(k); const book = PF.rbmBook || {};
+    const header = ['#', 'Field_Office', 'ADM1', 'ADMI1_PCOD', 'ADMIN2', 'ADM2_PCOD', 'ADMIN3', 'ADM3_PCOD', 'ADM4', 'ADM4_PCOD', 'POIName', 'Code POI', 'ID_MEMS', 'Latitude', 'Longitude', 'Nom du CP', "Type d'activité", 'Actif'];
+    PL_RBM_MLAB.forEach(l => header.push('Active', 'Prévu', 'Réel ' + l));
+    const rows = PF.rows.map((r, i) => {
+      const act = r[pc('act')], key = act + '|' + r[0], b = book[key] || {};
+      const months = String(r[pc('months')] || '------------').padEnd(12, '-');
+      const base = [i + 1, r[pc('fo')], r[pc('region')], b.p1 || '', r[pc('district')], b.p2 || '', r[pc('commune')], b.p3 || '', r[pc('fokontany')], b.p4 || '', r[pc('localite')], r[0], r[pc('publicId')] || '', r[pc('lat')], r[pc('lon')], b.cp || '', PL_RBM_TYPE_OUT[act] || act, r[pc('actif')] === 1 ? 1 : 0];
+      for (let t = 0; t < 16; t++) { const mi = t < 4 ? t + 8 : t - 4; const ch = months[mi]; base.push(ch === '1' ? 1 : ch === '-' ? '-' : '0', '', ''); }   // triplets 0-3 = Sep…Déc, 4-15 = Jan…Déc ; « 0 » explicite (cellule présente) pour l'aller-retour, « - » = grille non renseignée conservée
+      return base;
+    });
+    return { header, rows };
+  }
+  function plExportRbmPlan() { const X = plRbmPlanTable(); downloadBlob(xlsxBlob([{ name: 'Plan_de_suivi', header: X.header, rows: X.rows }]), 'plan_de_suivi_rbm_' + today() + '.xlsx'); }
 
   // ------------------------------------------------------------------ TIROIR D'UN SITE : les 5 facteurs, la fréquence, l'échéance, la raison de chaque mois
   function plFactorTable(s) {
@@ -763,7 +781,7 @@
     const sorted = rows.slice().sort((a, b) => (b.actif - a.actif) || ((a.late ? 0 : 1) - (b.late ? 0 : 1)) || (b.monthsLate - a.monthsLate) || (a.publicId < b.publicId ? -1 : 1));
     const slice = sorted.slice(SITE_UI.page * PAGE, SITE_UI.page * PAGE + PAGE);
     const bar = el('div', { class: 'frow' }, [el('label', { class: 'fld' }, ['Recherche', qs]), el('label', { class: 'fld' }, ['Statut', ss]),
-      btn('Registre DOTS (.xlsx)', plExportDots, 'on'), lockBadge(), !SESSION.admin ? btn('Gérer', () => requireAdmin(render)) : null,
+      btn('Registre DOTS (.xlsx)', plExportDots, 'on'), btn('Plan de suivi RBM (.xlsx)', plExportRbmPlan), lockBadge(), !SESSION.admin ? btn('Gérer', () => requireAdmin(render)) : null,
       SESSION.planPending ? el('span', { class: 'hint', text: 'Mise à jour de la carte…' }) : null]);
     const pager = pages > 1 ? el('div', { class: 'frow' }, [btn('‹ Précédente', () => { SITE_UI.page = Math.max(0, SITE_UI.page - 1); render(); }), el('span', { class: 'hint', text: 'Sites ' + fmt(SITE_UI.page * PAGE + 1) + '–' + fmt(Math.min(rows.length, SITE_UI.page * PAGE + PAGE)) + ' sur ' + fmt(rows.length) }), btn('Suivante ›', () => { SITE_UI.page = Math.min(pages - 1, SITE_UI.page + 1); render(); })]) : null;
     const rk = s => { if (!s.lastV) return '–'; const n = s.lastRisks.length; const sp = el('span', { class: 'cell bg-' + (n ? 'bad' : 'good'), text: String(n) }); bindTip(sp, () => n ? 'Alertes à la dernière visite (' + s.last + ') :\n• ' + riskNames(s).join('\n• ') : 'Aucune alerte critique à la dernière visite.'); return sp; };
@@ -836,7 +854,7 @@
   function plImportCard(main) {
     const by = inp({ type: 'text', placeholder: 'Nom de la personne', maxlength: 60, 'aria-label': 'Mis à jour par' }); by.value = SESSION.by || '';
     by.addEventListener('input', () => { SESSION.by = by.value.slice(0, 60); });
-    const sel = el('select', { 'aria-label': 'Contenu du fichier' }); [['AUTO', 'Détection automatique']].concat(D.acts.map(a => [a.code, a.label]), [['PLAN', 'Plan de suivi (registre des sites)']]).forEach(([v, t]) => sel.appendChild(el('option', { value: v, text: t })));
+    const sel = el('select', { 'aria-label': 'Contenu du fichier' }); [['AUTO', 'Détection automatique']].concat(D.acts.map(a => [a.code, a.label]), [['PLAN', 'Plan de suivi (registre des sites)'], ['RBMPLAN', 'Plan de suivi (classeur RBM)']]).forEach(([v, t]) => sel.appendChild(el('option', { value: v, text: t })));
     const fi = inp({ type: 'file', accept: '.csv,.txt,.xlsx,text/csv', 'aria-label': 'Fichier à importer' });
     const st = el('p', { class: 'hint pl-ist', text: 'CSV ou XLSX : extraction Tableau, export Kobo, ONA ou MoDA, ou plan de suivi.' });
     const pv = el('div', { class: 'pl-imp' });
@@ -848,14 +866,15 @@
       const rd = new FileReader(); rd.onerror = () => say('Lecture impossible.', true);
       rd.onload = async () => {
         try {
-          const u8 = new Uint8Array(rd.result); let text, sheet = null;
-          if (u8.length > 3 && u8[0] === 0x50 && u8[1] === 0x4B && u8[2] === 3 && u8[3] === 4) { const X = await plXlsxToCsv(rd.result); text = X.csv; sheet = X.sheet; }
+          const u8 = new Uint8Array(rd.result); let text, sheet = null, xmeta = null;
+          if (u8.length > 3 && u8[0] === 0x50 && u8[1] === 0x4B && u8[2] === 3 && u8[3] === 4) { const X = await plXlsxToCsv(rd.result); text = X.csv; sheet = X.sheet; xmeta = X; }
           else { text = new TextDecoder('utf-8').decode(u8); const bad = (text.slice(0, 200000).match(/�/g) || []).length; if (bad > 20) { try { text = new TextDecoder('windows-1252').decode(u8); } catch (e) { /* utf-8 gardé */ } } }
           const head = text.slice(0, Math.min(text.length, 1e6)).split(/\r?\n/)[0];
           const det = ENGINE.detectActDetail(CUR, head); let act = sel.value === 'AUTO' ? det.act : sel.value;
+          if (xmeta && xmeta.isRbm && sel.value === 'AUTO') act = 'RBMPLAN';   // classeur reconnu par la feuille Plan_de_suivi
           if (!act) { say('Contenu non reconnu : choisissez l’activité puis rechargez le fichier.', true); plDetectView(pv, det); return; }
-          const P = act === 'PLAN' ? ENGINE.previewPlan(CUR, text) : ENGINE.previewExtract(CUR, text, act);
-          PLS.imp = { name: f.name, text, act, P, det, sheet };
+          const P = act === 'RBMPLAN' ? ENGINE.previewRbmPlan(CUR, text, xmeta && xmeta.rbm) : act === 'PLAN' ? ENGINE.previewPlan(CUR, text) : ENGINE.previewExtract(CUR, text, act);
+          PLS.imp = { name: f.name, text, act, P, det, sheet, xmeta };
           say('Vérification terminée, rien n’a été modifié.');
           plPreviewView(pv, PLS.imp);
         } catch (e) { say('Import refusé : ' + String((e && e.message) || e) + '. Les données existantes n’ont pas été modifiées.', true); }
@@ -873,7 +892,24 @@
     clear(pv); const P = I.P, errs = [], warns = [];   // warns : [texte court, détail]
     let kv, cols;
     const colTable = rows => el('div', { class: 'tw' }, (() => { const t = el('table'); t.appendChild(el('thead', null, el('tr', null, ['Colonne attendue', 'Colonne du fichier', 'Règle'].map(h => el('th', { scope: 'col', text: h }))))); const tb = el('tbody'); rows.forEach(a => tb.appendChild(el('tr', null, [el('td', { text: a[0] }), el('td', { text: a[1] }), el('td', { text: a[2] === 'liste' ? 'choix multiple dans une seule colonne' : a[2] === 'identifiant' ? 'identifiant de soumission' : 'nom de variable' })]))); t.appendChild(tb); return t; })());
-    if (I.act === 'PLAN') {
+    if (I.act === 'RBMPLAN') {
+      if (P.err) { errs.push(P.err); }
+      else {
+        const byActTxt = Object.keys(P.byAct || {}).map(a => (ACT[a] ? ACT[a].short : a) + ' ' + fmt(P.byAct[a])).join(', ') || '–';
+        if (!P.nPlan) errs.push('Aucun site du plan reconnu');
+        if (P.skippedType) warns.push([fmt(P.skippedType) + ' lignes au type d’activité non reconnu', 'Colonne « Type d’activité » absente de la table GD/CBT/UCT, MAM, School meal, STUNT/MIARO, Résilience : ces lignes sont ignorées.']);
+        if (P.noCode) warns.push([fmt(P.noCode) + ' lignes sans code de site', 'Ni code POI ni ADM4_PCOD : ligne ignorée.']);
+        if (!P.codeNamed) warns.push(['Code POI pris dans la colonne après POIName', 'La colonne de code POI n’a pas d’en-tête (classeur d’origine) : la colonne juste après POIName est utilisée comme code de site.']);
+        if (P.monthsRead < 12) warns.push([fmt(P.monthsRead) + ' mois sur 12 reconnus', 'Triplets Active/Prévu/Réel incomplets ; les mois non reconnus seront laissés à Non.']);
+        kv = [['Contenu', 'Plan de suivi (classeur RBM)' + (I.sheet ? ', feuille ' + I.sheet : '')], ['Sites dans le plan', fmt(P.nPlan) + ' (' + fmt(P.rows) + ' lignes lues)'],
+          ['Par activité', byActTxt], ['Changements', fmt(P.added) + ' ajoutés, ' + fmt(P.updated) + ' mis à jour · registre : ' + fmt(P.totalSites) + ' sites conservés'],
+          ['GPS', fmt(P.withGps) + ' sites géolocalisés'], ['Mois actifs', fmt(P.monthsRead) + ' / 12 lus, année ' + P.annee], ['Triplets mensuels', fmt(P.nTrip) + ' (Active/Prévu/Réel), ' + fmt(P.labelled) + ' mois étiquetés']];
+        if (P.over) { kv.push(['Paramètres MMR/RBM', P.over.map(o => (ACT[o.act] ? ACT[o.act].short : o.act) + ' : ' + (isFinite(o.freq) ? fmt(o.freq) + ' visite(s)/an' : '–') + (isFinite(o.interval) ? ', 1 tous les ' + fmt(o.interval) + ' mois' : '')).join(' · ')]); }
+        if (P.risk) { kv.push(['Classification des risques', fmt(P.risk.n) + ' sites classés (priorité : ' + fmt(P.risk.prio[2]) + ' haute, ' + fmt(P.risk.prio[1]) + ' moyenne, ' + fmt(P.risk.prio[0]) + ' basse) — lu pour information']); }
+        cols = [el('p', { class: 'hint', text: 'Plan de suivi fusionné au registre : les sites connus (code POI + activité) sont mis à jour, les nouveaux ajoutés, les autres conservés avec leur identifiant S-XXXX-XXXX.' })];
+      }
+      if (errs.length) { kv = kv || [['Contenu', 'Plan de suivi (classeur RBM)']]; cols = cols || []; }
+    } else if (I.act === 'PLAN') {
       if (P.missingKey.length) errs.push('Colonnes obligatoires absentes : ' + P.missingKey.join(', '));
       if (P.err) errs.push(P.err); if (!P.missingKey.length && !P.err && !P.sites) errs.push('Aucun site reconnu');
       if (P.missing.length) warns.push(['Colonnes absentes : ' + fmt(P.missing.length), P.missing.join(', ') + '. Les valeurs actuelles sont conservées ou laissées vides.']);
@@ -895,8 +931,16 @@
       if (G.labels && G.kept) warns.push([fmt(G.kept) + ' valeurs non décodées', 'Libellés sans équivalent dans les listes du formulaire : gardés tels quels (sans effet sur le score, ignorés dans l’explorateur).']);
       if (G.siteSrc === 'nom') warns.push([fmt(G.siteDistinct) + ' sites par leur nom, ' + fmt(G.siteMatched) + ' au registre', 'Pas de code de site dans ce fichier : la clé de site est le nom saisi, normalisé (espaces, casse, accents). ' + fmt(G.siteMatched) + ' site(s) rattaché(s) au registre de ' + S.short + ' par ce nom ; les autres restent « hors registre » (non planifiables).']);
       if (G.siteSrc === 'absent') warns.push(['Aucune colonne de site', 'Ni code ni nom de site : toutes les fiches d’un même jour formeront une seule visite.']);
-      const fmtTxt = G.labels ? 'Export Kobo en libellés : réponses décodées en codes (Oui / Non / Partiellement / n/a et listes du formulaire, ' + fmt(G.decoded) + ' valeurs)' + (G.labelRow ? ', 2ᵉ ligne d’en-tête (libellés des questions) ignorée' : '') + (G.siteSrc === 'nom' ? ', site = nom saisi (' + (S.label.indexOf('Résilience') >= 0 ? 'ADMIN5Name_DP' : 'colonne du site') + ')' : '') + (G.gpsSrc === 'kobo' ? ', GPS = colonnes _HHCoord' : '') + (G.admByName ? ', région et district reconnus par leur nom (' + fmt(G.admByName) + ' valeurs)' : '') : G.aliasN && !G.labelRow ? 'Export en codes (Tableau ou Kobo valeurs XML)' + (G.gpsSrc === 'kobo' ? ', GPS = colonnes _HHCoord' : '') + (G.admByName ? ', région et district par leur nom' : '') : 'Extraction Tableau';
-      kv = [['Activité', S.label + (I.sheet ? ', feuille ' + I.sheet : '')], ['Format', fmtTxt], ['Fiches', fmt(P.fiches) + ', remplacent les ' + fmt(dq.subs) + ' actuelles'], ['Période', P.period ? dFrUI(P.period[0]) + ' au ' + dFrUI(P.period[1]) : 'non lisible'], ['Normes et alertes', fmt(G.itemsDecodable) + ' / ' + fmt(G.itemsFound) + ' normes lisibles, ' + fmt(G.risksDecodable) + ' / ' + fmt(G.risksFound) + ' alertes'], ['Variables reconnues', fmt(P.found) + ' / ' + fmt(P.nVars) + ' (' + pct(share * 100) + ')'], ['Identifiant', P.idSource || '–']];
+      const XM = I.xmeta || {};
+      if (XM.otherSheets && XM.otherSheets.length) warns.push([fmt(XM.otherSheets.length) + ' groupe(s) répété(s) non importé(s)', 'Feuilles secondaires non lues (groupes qui se répètent : FGD, bénéficiaires, stock…) : ' + XM.otherSheets.join(', ') + '. Les fiches sont lues ; seuls les indicateurs calculés depuis ces répétitions peuvent rester vides.']);
+      const koboCodes = (P.aliasN || 0) > 0 && !G.labels;
+      const fmtTxt = (G.labels ? 'Export Kobo en libellés : réponses décodées en codes (Oui / Non / Partiellement / n/a et listes du formulaire, ' + fmt(G.decoded) + ' valeurs)' + (G.labelRow ? ', 2ᵉ ligne d’en-tête ignorée' : '') : koboCodes ? 'Export Kobo / ONA / MoDA en codes (valeurs XML)' : 'Extraction Tableau')
+        + (G.siteCol ? ', site : ' + G.siteCol + (G.siteAlias ? ' (reconnu par alias)' : '') : G.siteSrc === 'nom' ? ', site = nom saisi' : '')
+        + (G.gpsSrc === 'kobo' ? ', GPS = colonnes _HHCoord' : '') + (G.admByName ? ', région et district par leur nom (' + fmt(G.admByName) + ')' : '')
+        + (XM.dateConv ? ', ' + fmt(XM.dateConv) + ' date(s) converties depuis un numéro Excel' : '');
+      const siteTxt = G.siteCol ? G.siteCol + (G.siteAlias ? ' (alias du formulaire)' : '') + (G.siteSrc === 'nom' ? ' · rattaché par nom, ' + fmt(G.siteMatched) + ' au registre' : '') : (G.siteSrc === 'nom' ? 'nom saisi, ' + fmt(G.siteMatched) + ' au registre' : 'aucune (fiches groupées par jour)');
+      const dateTxt = (P.dateCol ? 'lue dans « ' + P.dateCol + ' »' : 'colonne introuvable') + (XM.dateConv ? ', ' + fmt(XM.dateConv) + ' converties depuis un numéro Excel' : '');
+      kv = [['Activité', S.label + (I.sheet ? ', feuille ' + I.sheet : '')], ['Format', fmtTxt], ['Colonne de site', siteTxt], ['Date d’enquête', dateTxt], ['Fiches', fmt(P.fiches) + ', remplacent les ' + fmt(dq.subs) + ' actuelles'], ['Période', P.period ? dFrUI(P.period[0]) + ' au ' + dFrUI(P.period[1]) : 'non lisible'], ['Normes et alertes', fmt(G.itemsDecodable) + ' / ' + fmt(G.itemsFound) + ' normes lisibles, ' + fmt(G.risksDecodable) + ' / ' + fmt(G.risksFound) + ' alertes'], ['Variables reconnues', fmt(P.found) + ' / ' + fmt(P.nVars) + ' (' + pct(share * 100) + ')'], ['Identifiant', P.idSource || '–']];
       cols = [el('p', { class: 'hint', text: fmt(P.rows) + ' lignes et ' + fmt(P.ncols) + ' colonnes. ' + fmt(P.exactN) + ' reconnues par leur nom exact, ' + fmt(P.aliasN) + ' par correspondance (nom de variable, groupe/variable, choix multiples' + (P.byLabel ? ', ' + fmt(P.byLabel) + ' par libellé' : '') + '), ' + fmt(P.ignored.length) + ' ignorées.' + (P.dateCol ? ' Date lue dans « ' + P.dateCol + ' ».' : '') }),
         P.alias.length ? colTable(P.alias) : null, P.missing.length ? el('p', { class: 'hint', text: 'Variables attendues absentes (' + fmt(P.missing.length) + ', indicateurs correspondants vides) : ' + P.missing.join(', ') }) : null, P.ignored.length ? el('p', { class: 'hint', text: 'Colonnes ignorées : ' + P.ignored.join(', ') }) : null];
     }
@@ -913,7 +957,11 @@
       const when = today() + ' ' + new Date().toTimeString().slice(0, 5), who = SESSION.by || '—';
       try {
         let P2, entry;
-        if (I.act === 'PLAN') {
+        if (I.act === 'RBMPLAN') {
+          const res = ENGINE.importRbmPlan(CUR, I.text, I.xmeta && I.xmeta.rbm, { date: today(), by: who, file: I.name }); const Rp = res.report;
+          P2 = ENGINE.refreshPlanTables(res.P);
+          entry = { when, by: who, what: 'Plan de suivi (classeur RBM) – ' + I.name, res: fmt(Rp.nPlan) + ' sites du plan (' + fmt(Rp.added) + ' ajoutés, ' + fmt(Rp.updated) + ' mis à jour), registre : ' + fmt(Rp.totalSites) + ' sites' + (Rp.overApplied.length ? ' · MMR ' + Rp.overApplied.join(', ') : ''), warn: Rp.skippedType ? fmt(Rp.skippedType) + ' ligne(s) au type d’activité non reconnu' : '—' };
+        } else if (I.act === 'PLAN') {
           P2 = ENGINE.refreshPlanTables(ENGINE.importPlan(CUR, I.text));
           P2.updated = Object.assign({}, P2.updated, { PLAN: { date: today(), by: who, file: I.name, rows: P2.planFull.rows.length } });
           entry = { when, by: who, what: 'Plan de suivi – ' + I.name, res: fmt(P2.planFull.rows.length) + ' sites (' + fmt(I.P.added) + ' ajoutés, ' + fmt(I.P.removed) + ' retirés, ' + fmt(I.P.actifChanged) + ' « Actif » modifiés)', warn: I.P.missing.length ? 'Colonnes absentes : ' + I.P.missing.join(', ') : '—' };
@@ -965,27 +1013,55 @@
     const relT = new Map(); (rels.match(/<Relationship\b[^>]*>/g) || []).forEach(t => { const id = (t.match(/\bId="([^"]+)"/) || [])[1], tg = (t.match(/\bTarget="([^"]+)"/) || [])[1]; if (id && tg) relT.set(id, tg.replace(/^\/?xl\//, '')); });
     const sheets = (wb.match(/<sheet\b[^>]*>/g) || []).map(t => ({ name: plXmlDec((t.match(/\bname="([^"]*)"/) || [])[1] || ''), target: relT.get((t.match(/\br:id="([^"]+)"/) || [])[1]) || '' })).filter(s => /^worksheets\/sheet\d+\.xml$/.test(s.target));
     if (!sheets.length) throw new Error('aucune feuille de données trouvée dans le classeur');
-    const sh = sheets.slice().sort((a, b) => ((E.get('xl/' + b.target) || {}).usize || 0) - ((E.get('xl/' + a.target) || {}).usize || 0))[0];   // la feuille la plus grande = les données
+    // classeur RBM / plan de suivi : reconnu par la feuille « Plan_de_suivi ». On lit cette feuille (et non la plus
+    // grande), plus « Overarching_parameters » et « Risk_based_selection_ » pour la configuration RBM/MMR et les risques.
+    const rbmSheet = sheets.find(s => /^plan[\s_]*de[\s_]*suivi$/i.test(String(s.name).replace(/\s+/g, '_')));
+    const sh = rbmSheet || sheets.slice().sort((a, b) => ((E.get('xl/' + b.target) || {}).usize || 0) - ((E.get('xl/' + a.target) || {}).usize || 0))[0];   // la feuille la plus grande = les données (sinon le plan)
+    const otherSheets = sheets.filter(s => s !== sh).map(s => s.name);   // groupes répétés (FGD, stock…) : feuilles non lues, signalées dans l'aperçu
     const ss = []; const sst = await take('xl/sharedStrings.xml'); if (sst) (sst.match(/<si>[\s\S]*?<\/si>/g) || []).forEach(si => { ss.push(plXmlDec((si.match(/<t\b[^>]*>[\s\S]*?<\/t>/g) || []).map(t => t.replace(/^<t\b[^>]*>|<\/t>$/g, '')).join(''))); });
     const sty = (await take('xl/styles.xml')) || ''; const fmts = new Map(); (sty.match(/<numFmt\b[^>]*>/g) || []).forEach(t => { fmts.set(+((t.match(/numFmtId="(\d+)"/) || [])[1]), plXmlDec((t.match(/formatCode="([^"]*)"/) || [])[1] || '')); });
     const xfs = ((sty.match(/<cellXfs\b[\s\S]*?<\/cellXfs>/) || [''])[0].match(/<xf\b[^>]*>/g) || []).map(t => { const id = +((t.match(/numFmtId="(\d+)"/) || [])[1] || 0); return (id >= 14 && id <= 22) || (id >= 45 && id <= 47) || (fmts.has(id) && /[dmyhs]/i.test(fmts.get(id).replace(/"[^"]*"|\[[^\]]*\]/g, ''))); });
-    const xml = await take('xl/' + sh.target); if (!xml) throw new Error('feuille illisible');
     const colN = ref => { let n = 0; for (let i = 0; i < ref.length; i++) { const c = ref.charCodeAt(i); if (c < 65 || c > 90) break; n = n * 26 + c - 64; } return n - 1; };
     const toDate = v => { if (!(v > 0 && v < 2958466)) return String(v); const d = new Date(Math.round((v - 25569) * 86400000)); const iso = d.toISOString(); return Math.abs(v - Math.round(v)) < 1e-9 ? iso.slice(0, 10) : iso.slice(0, 19); };
     const q = x => /[",\r\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x;
-    const out = []; const rowRe = /<row\b[^>]*>([\s\S]*?)<\/row>/g, cRe = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g; let m, nRows = 0;
-    while ((m = rowRe.exec(xml))) {
-      const cells = []; let c; cRe.lastIndex = 0; const body = m[1];
-      while ((c = cRe.exec(body))) {
-        const at = c[1], inner = c[2] || ''; const ref = (at.match(/\br="([A-Z]+)\d+"/) || [])[1]; const j = ref ? colN(ref) : cells.length; if (j > 5000) throw new Error('feuille refusée : plus de 5 000 colonnes');
-        const t = (at.match(/\bt="([^"]+)"/) || [])[1], s = +((at.match(/\bs="(\d+)"/) || [])[1] || 0); let v = '';
-        if (t === 'inlineStr') v = plXmlDec((inner.match(/<t\b[^>]*>[\s\S]*?<\/t>/g) || []).map(x => x.replace(/^<t\b[^>]*>|<\/t>$/g, '')).join(''));
-        else { const raw = (inner.match(/<v>([\s\S]*?)<\/v>/) || [])[1]; if (raw !== undefined) { if (t === 's') v = ss[+raw] || ''; else if (t === 'str' || t === 'e') v = plXmlDec(raw); else if (t === 'b') v = raw === '1' ? 'TRUE' : 'FALSE'; else v = xfs[s] && isFinite(+raw) ? toDate(+raw) : raw; } }
-        cells[j] = v;
+    // colonnes de date connues du moteur : si Kobo exporte la date en nombre nu (sans style date),
+    // on convertit quand même le numéro de série Excel plausible (1000 < v < 60000) en ISO, par le dernier
+    // segment du chemin (SvyDate, today, start, end, _submission_time). Les vraies colonnes texte ou les codes
+    // (DIRDateSchoolVisit = 5…) ne correspondent pas (segment exact) ou sortent de la plage : jamais touchés.
+    const DATE_SEG = new Set(['svydate', 'today', 'start', 'end', 'submissiontime', 'submissiondate', 'enddate', 'startdate']);
+    const segOf = h => String(h).replace(/^﻿/, '').trim().split(/[/:]/).pop().toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const sheetCsv = async (target, lenient) => {
+      const xml = await take('xl/' + target); if (!xml) return { csv: '', rows: 0, dateConv: 0, dateColNames: [] };
+      const out = []; const rowRe = /<row\b[^>]*>([\s\S]*?)<\/row>/g, cRe = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g; let m, nRows = 0;
+      let dateCols = null; const dateColNames = []; let dateConv = 0;
+      while ((m = rowRe.exec(xml))) {
+        const cells = []; let c; cRe.lastIndex = 0; const body = m[1];
+        while ((c = cRe.exec(body))) {
+          const at = c[1], inner = c[2] || ''; const ref = (at.match(/\br="([A-Z]+)\d+"/) || [])[1]; const j = ref ? colN(ref) : cells.length;
+          // une feuille RBM annexe (Risk_based_selection_) porte un formatage pleine largeur (16 000 colonnes vides) : on s'arrête aux cellules utiles au lieu de refuser la feuille ; le plafond reste strict pour les feuilles de données
+          if (j > 5000) { if (lenient) break; throw new Error('feuille refusée : plus de 5 000 colonnes'); }
+          const t = (at.match(/\bt="([^"]+)"/) || [])[1], s = +((at.match(/\bs="(\d+)"/) || [])[1] || 0); let v = '';
+          if (t === 'inlineStr') v = plXmlDec((inner.match(/<t\b[^>]*>[\s\S]*?<\/t>/g) || []).map(x => x.replace(/^<t\b[^>]*>|<\/t>$/g, '')).join(''));
+          else { const raw = (inner.match(/<v>([\s\S]*?)<\/v>/) || [])[1]; if (raw !== undefined) { if (t === 's') v = ss[+raw] || ''; else if (t === 'str' || t === 'e') v = plXmlDec(raw); else if (t === 'b') v = raw === '1' ? 'TRUE' : 'FALSE'; else v = xfs[s] && isFinite(+raw) ? toDate(+raw) : raw; } }
+          cells[j] = v;
+        }
+        for (let i = 0; i < cells.length; i++) if (cells[i] === undefined) cells[i] = '';
+        if (nRows === 0) { dateCols = []; cells.forEach((h, j) => { if (DATE_SEG.has(segOf(h))) { dateCols.push(j); dateColNames.push(String(h).replace(/^﻿/, '').trim()); } }); }
+        else if (dateCols && dateCols.length) { dateCols.forEach(j => { const v = cells[j]; if (typeof v === 'string' && /^\d+(\.\d+)?$/.test(v)) { const n = +v; if (n > 1000 && n < 60000) { cells[j] = toDate(n); dateConv++; } } }); }
+        out.push(cells.map(q).join(',')); nRows++;
       }
-      for (let i = 0; i < cells.length; i++) if (cells[i] === undefined) cells[i] = '';
-      out.push(cells.map(q).join(',')); nRows++;
+      return { csv: out.join('\n'), rows: nRows, dateConv, dateColNames };
+    };
+    const main = await sheetCsv(sh.target); if (!main.csv) throw new Error('feuille illisible');
+    const res = { csv: main.csv, sheet: sh.name, rows: main.rows, otherSheets, dateCols: main.dateColNames, dateConv: main.dateConv, sheetNames: sheets.map(s => s.name) };
+    if (rbmSheet) {
+      res.isRbm = true;
+      const findS = re => sheets.find(s => re.test(String(s.name)));
+      const pS = findS(/^overarching/i), rS = findS(/^risk[\s_]*based/i);
+      const safe = async t => { try { return (await sheetCsv(t, true)).csv; } catch (e) { return null; } };
+      res.rbm = { params: pS ? await safe(pS.target) : null, risk: rS ? await safe(rS.target) : null };
+      res.otherSheets = sheets.filter(s => s !== sh && s !== pS && s !== rS).map(s => s.name);
     }
-    return { csv: out.join('\n'), sheet: sh.name, rows: nRows };
+    return res;
   }
   function plXmlDec(s) { return String(s).replace(/&(#x[0-9a-f]+|#\d+|lt|gt|amp|quot|apos);/gi, (x, e) => { const k = e.toLowerCase(); if (k === 'lt') return '<'; if (k === 'gt') return '>'; if (k === 'amp') return '&'; if (k === 'quot') return '"'; if (k === 'apos') return '\''; const n = k[1] === 'x' ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10); return n > 0 && n < 0x110000 ? String.fromCodePoint(n) : ''; }); }

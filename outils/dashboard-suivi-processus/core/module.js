@@ -53,7 +53,7 @@
   }
   // Filtres pris en compte par chaque onglet (les autres sont grisés, avec la raison) : aucun filtre « muet »
   const FILTER_SCOPE = {
-    overview: 'all', map: 'all', activity: 'all', agents: 'all', partners: 'all', quality: 'all', report: 'all', pilot: 'all', logistique: 'all',
+    overview: 'all', map: 'all', activity: 'all', agents: 'all', partners: 'all', quality: 'all', report: 'all', pilot: 'all', logistique: 'all', cases: 'all',
     sites: ['act', 'fo', 'region', 'district'], rbm: ['act', 'fo', 'region', 'district', 'period'], data: [], method: []
   };
   const FILTER_WHY = {

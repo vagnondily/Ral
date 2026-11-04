@@ -58,6 +58,26 @@ const LAB_NORM = s => asciiFold(String(s === null || s === undefined ? '' : s)).
 const LAB_YESNO = new Map([['oui', '1'], ['yes', '1'], ['vrai', '1'], ['true', '1'], ['non', '0'], ['no', '0'], ['faux', '0'], ['false', '0'], ['partiellement', '2'], ['partiel', '2'], ['partially', '2'], ['en partie', '2']]);
 const LAB_NA = new Set(['', 'n a', 'na', 'nan', 'sans objet', 'non applicable', 'not applicable', 'none', 'null']);
 const LAB_CODE = /^-?\d+(\.\d+)?$|^(true|false)$/i;
+// Colonne de site d'un export brut Kobo : le spec nomme la variable avec le suffixe de l'activité
+// (DPName_GD, DPName_MAM, DPName_MIARO, DPName_SMP, DPName_Resilience_re) mais l'export garde le nom
+// de base du XLSForm. Table documentée du dernier segment attendu, par activité :
+//   GD / PECMAM : DPName (code POI « MG… » ou nom saisi) · MIARO : POIName · SMP : Adm4Code_SMP (code
+//   du fokontany de l'école, format du registre SMP) · RES : rattaché par nom (ADMIN5Name_DP, chemin « libellés »).
+// Les colonnes « …_Other / _oth » (site hors liste) sont écartées : on ne compare que le dernier segment EXACT.
+const SITE_ALIASES = { GD: ['dpname', 'poiname'], PECMAM: ['dpname', 'poiname'], MIARO: ['poiname', 'dpname'], SMP: ['adm4codesmp', 'adm4codesmpid', 'dpname', 'poiname'], RES: ['dpname', 'poiname'] };
+function siteSegKey(h) { return asciiFold(hClean(h)).toLowerCase().split(/[/:]/).pop().replace(/[^a-z0-9]+/g, ''); }
+function resolveSiteAlias(M, S, act) {
+  const site = S.tb && S.tb.site; if (!site || M.idx[site] !== undefined || !act) return null;
+  const al = SITE_ALIASES[act]; if (!al) return null;
+  const used = new Set(Object.keys(M.idx).map(k => M.idx[k]));
+  for (const key of al) {
+    let any = -1, free = -1;
+    for (let j = 0; j < M.header.length; j++) { if (siteSegKey(M.header[j]) !== key) continue; if (any < 0) any = j; if (!used.has(j)) { free = j; break; } }
+    const pick = free >= 0 ? free : any;
+    if (pick >= 0) { M.idx[site] = pick; M.src[site] = 'site'; return M.header[pick]; }
+  }
+  return null;
+}
 function needOf(S, gdRep) {
   const need = new Set([S.mainid]);
   Object.values(S.vars).forEach(v => { if (v.t === 'm') v.o.forEach(o => need.add(o[0])); else need.add(v.c); });
@@ -156,10 +176,10 @@ function mapReport(M, S) {
 }
 function readExtract(text, S, gdRep) {
   const P = EX_CTX; const act = P && P.spec && P.spec.acts ? Object.keys(P.spec.acts).find(a => P.spec.acts[a].tab === S.tab && P.spec.acts[a].mainid === S.mainid) || null : null;
-  let M = null, G = null, mainRows = [], seen = new Set(), fRows = [], fSeen = new Set(), sRows = [], sSeen = new Set(), nRaw = 0, noId = 0, header, labelRow = false, first = true;
+  let M = null, G = null, mainRows = [], seen = new Set(), fRows = [], fSeen = new Set(), sRows = [], sSeen = new Set(), nRaw = 0, noId = 0, header, labelRow = false, first = true, siteAlias = null;
   const cols = [];
   const val = (row, k) => { const f = G.get(k); return f ? f(row) : null; };
-  header = parseCSV(text, h => { M = headerMap(h, S, gdRep); G = makeGetters(M); Object.keys(M.idx).forEach(k => cols.push(k)); return null; }, row => {
+  header = parseCSV(text, h => { M = headerMap(h, S, gdRep); siteAlias = resolveSiteAlias(M, S, act); G = makeGetters(M); Object.keys(M.idx).forEach(k => cols.push(k)); return null; }, row => {
     if (first) { first = false; if (isLabelRow(row, M, S)) { labelRow = true; return; } }
     nRaw++;
     const id = val(row, S.mainid); if (id === null) noId++;
@@ -176,7 +196,7 @@ function readExtract(text, S, gdRep) {
   const nr = mainRows.length; const nul = () => new Array(nr).fill(null);
   // ---- export « en libellés » ? décidé sur les normes et les alertes (Oui / Non / n/a plutôt que 1 / 0)
   const capVar = new Map(); Object.keys(S.vars).forEach(nm => { const v = S.vars[nm]; if (v.t === 'm') v.o.forEach(o => capVar.set(o[0], { nm, opt: true, code: String(o[1]) })); else if (v.c) capVar.set(v.c, { nm, opt: false }); });
-  const diag = { labelRow, labels: false, decoded: 0, kept: 0, itemsFound: 0, itemsDecodable: 0, risksFound: 0, risksDecodable: 0, admByName: 0, siteSrc: M.idx[S.tb.site] !== undefined ? 'code' : 'absent', siteNamed: 0, siteMatched: 0, siteDistinct: 0, gpsSrc: M.gps ? 'kobo' : (M.idx[S.tb.lat] !== undefined ? 'tableau' : 'absent'), noId };
+  const diag = { labelRow, labels: false, decoded: 0, kept: 0, itemsFound: 0, itemsDecodable: 0, risksFound: 0, risksDecodable: 0, admByName: 0, siteSrc: M.idx[S.tb.site] !== undefined ? 'code' : 'absent', siteCol: M.idx[S.tb.site] !== undefined ? M.header[M.idx[S.tb.site]] : null, siteAlias: siteAlias || null, siteNamed: 0, siteMatched: 0, siteDistinct: 0, gpsSrc: M.gps ? 'kobo' : (M.idx[S.tb.lat] !== undefined ? 'tableau' : 'absent'), noId };
   const probe = (S.items || []).map(it => S.vars[it.name] && S.vars[it.name].c).concat((S.risks || []).map(r => S.vars[r] && S.vars[r].c)).filter(c => c && raw[c]);
   let numN = 0, labN = 0; probe.forEach(c => raw[c].forEach(v => { if (v === null) return; if (LAB_CODE.test(v)) numN++; else { const k = LAB_NORM(v); if (LAB_YESNO.has(k) || LAB_NA.has(k)) labN++; } }));
   diag.labels = labN > numN && labN > 0;
@@ -325,6 +345,8 @@ function detectActDetail(P, headerLine) {
   const keys = new Set(); cells.forEach(c => { const segs = hKey(c).split('/').filter(Boolean); for (let i = 0; i < segs.length; i++) keys.add(segs.slice(i).join('/')); });
   const pk = new Set(cells.map(planKey));
   if (pk.has('codepoi') && pk.has('tagcode')) return { act: 'PLAN', scores: [] };
+  // classeur RBM / plan de suivi : en-tête à plat (POIName + Type d'activité + Field_Office)
+  if (pk.has('poiname') && pk.has('typedactivite') && (pk.has('fieldoffice') || pk.has('adm1'))) return { act: 'RBMPLAN', scores: [] };
   const scores = Object.keys(P.spec.acts).map(a => {
     const S = P.spec.acts[a];
     const sig = S.sig.filter(c => keys.has(hKey(c)) || keys.has(hKey(c.replace(/\s*\(Data\d*\)\s*$/i, '')))).length;
@@ -337,6 +359,145 @@ function detectActDetail(P, headerLine) {
   return { act: ok ? b.act : null, scores };
 }
 function detectAct(P, headerLine) { return detectActDetail(P, headerLine).act; }
+
+// ======================================================================= Classeur RBM / Plan de suivi (feuille « Plan_de_suivi »)
+// Table documentée « Type d'activité » du classeur → code d'activité du dashboard. Rapprochement par mot-clé
+// normalisé (casse, accents, espaces) pour tolérer GD-PREV, CBT/UCT, School meal, STUNT/MIARO, Resilience…
+function rbmActOf(type) {
+  const MAP = [[/(^| )(mam|pecmam)( |$)|nutrition treatment|traitement de la mam|moderate acute/, 'PECMAM'], [/school meal|cantine|alimentation scolaire|(^| )smp( |$)/, 'SMP'],
+    [/stunt|miaro|malnutrition prevention|prevention du retard|prevention de la malnutrition/, 'MIARO'], [/(^| )gd|prevma|cbt|uct|unconditional|distribution generale|general distribution|resource transfer/, 'GD'],
+    [/resilience|ffa|food assistance for assets|sams|cep|vsla|rrt|asset creation/, 'RES']];
+  const k = asciiFold(String(type === null || type === undefined ? '' : type)).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); if (!k) return null;
+  for (let i = 0; i < MAP.length; i++) if (MAP[i][0].test(k)) return MAP[i][1]; return null;
+}
+// mois (0 = Jan … 11 = Déc) d'un libellé de colonne (en-tête ou titre). « huil » = coquille de juillet du classeur source.
+function rbmMonthOf(label) {
+  const RE = [[/^jan/, 0], [/^f[eé]v|^feb/, 1], [/^mar/, 2], [/^av|^apr/, 3], [/^mai|^may/, 4], [/^jui?n|^jun/, 5], [/^juil|^jul|^huil/, 6], [/^ao[uû]|^aug/, 7], [/^sep/, 8], [/^oct/, 9], [/^nov/, 10], [/^d[eé]c/, 11]];
+  const k = asciiFold(String(label === null || label === undefined ? '' : label)).toLowerCase().replace(/^(reel|prevu|active)[^a-z]*/, '').replace(/[^a-z0-9]+/g, '').trim(); if (!k) return -1;
+  for (let i = 0; i < RE.length; i++) if (RE[i][0].test(k)) return RE[i][1]; return -1;
+}
+function rbmTruthy(v) { if (v === null || v === undefined) return false; const s = String(v).trim().toLowerCase(); return s === '1' || s === 'oui' || s === 'yes' || s === 'true' || s === 'vrai' || s === 'x'; }
+// Analyse la feuille Plan_de_suivi (titre ligne 1, en-têtes ligne 2, données à partir de la ligne 5) OU un export à
+// plat (en-têtes ligne 1, données ligne 2). Repère la ligne d'en-têtes par son contenu, les colonnes par leur nom.
+function parsePlanBook(text) {
+  const rows = []; parseCSV(text, h => { rows.push(h); return null; }, rw => rows.push(rw));
+  if (!rows.length) return { ok: false, err: 'fichier vide' };
+  const normH = x => hClean(x);
+  const findHeader = () => { for (let i = 0; i < Math.min(rows.length, 12); i++) { const set = new Set(rows[i].map(x => normH(x))); if (set.has('POIName') && (set.has('Field_Office') || set.has('ADM1') || set.has("Type d'activité"))) return i; } return -1; };
+  const hi = findHeader(); if (hi < 0) return { ok: false, err: 'en-têtes du plan de suivi introuvables (POIName, Field_Office, Type d’activité) : ce n’est pas le classeur de plan de suivi.' };
+  const H = rows[hi].map(normH); const title = hi > 0 ? rows[hi - 1].map(normH) : null;
+  const key = s => asciiFold(hClean(s)).toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const colBy = (...names) => { const want = names.map(key); for (let j = 0; j < H.length; j++) if (want.indexOf(key(H[j])) >= 0) return j; return -1; };
+  const col = { num: colBy('#'), fo: colBy('Field_Office', 'Field office', 'Bureau'), adm1: colBy('ADM1', 'Region'), p1: colBy('ADMI1_PCOD', 'ADM1_PCOD'), adm2: colBy('ADMIN2', 'District'), p2: colBy('ADM2_PCOD'), adm3: colBy('ADMIN3', 'Commune'), p3: colBy('ADM3_PCOD'), adm4: colBy('ADM4', 'Fokontany'), p4: colBy('ADM4_PCOD'), poi: colBy('POIName', 'Localité', 'Localite'), lat: colBy('Latitude', 'Lat'), lon: colBy('Longitude', 'Lon', 'Long'), cp: colBy('Nom du CP', 'Nom du CP (conformément au nom du fournisseur)', 'CP name', 'Partenaire'), type: colBy("Type d'activité", "Type d activite", 'Activity type', 'Activity category'), activeYear: colBy('Active or not active for the reporting year', 'Active or not active', 'Actif'), id: colBy('ID_MEMS', 'ID site', 'ID_site', 'Identifiant') };
+  // colonne de code POI : « Code POI » si nommée, sinon la colonne (sans en-tête) juste après POIName
+  let codeCol = colBy('Code POI', 'POI code', 'Code', 'POICode'); if (codeCol < 0 && col.poi >= 0) codeCol = col.poi + 1;
+  // triplets mensuels : chaque cellule « Active » ouvre un triplet (Active | Prévu | Réel)
+  const trip = []; H.forEach((h, j) => { if (/^active$/i.test(h)) trip.push({ a: j, p: j + 1, r: j + 2 }); });
+  // mois de chaque triplet : libellé du titre (classeur d'origine), sinon 3ᵉ en-tête (Réel_xxx), sinon position
+  trip.forEach((t, i) => { let mi = title ? rbmMonthOf(title[t.a]) : -1; if (mi < 0) mi = rbmMonthOf(H[t.r]); if (mi < 0) mi = rbmMonthOf(H[t.a]); t.mi = mi; });
+  const labelled = trip.filter(t => t.mi >= 0).length;
+  // grille 12 mois (Jan..Déc) : colonne « Active » du triplet de chaque mois ; la dernière occurrence gagne (année en cours).
+  const monthCols = new Array(12).fill(-1), prevuCols = new Array(12).fill(-1), reelCols = new Array(12).fill(-1);
+  if (labelled >= 12) trip.forEach(t => { if (t.mi >= 0) { monthCols[t.mi] = t.a; prevuCols[t.mi] = t.p; reelCols[t.mi] = t.r; } });
+  else if (trip.length >= 16) for (let k = 0; k < 12; k++) { const t = trip[4 + k]; monthCols[k] = t.a; prevuCols[k] = t.p; reelCols[k] = t.r; }   // Sept(Y0)…Déc(Y1) : les 12 derniers = Jan…Déc
+  else if (trip.length >= 12) for (let k = 0; k < 12; k++) { const t = trip[trip.length - 12 + k]; monthCols[k] = t.a; prevuCols[k] = t.p; reelCols[k] = t.r; }
+  const dataRows = rows.slice(hi + 1).filter(r => r && ((codeCol >= 0 && hClean(r[codeCol]) !== '') || (col.poi >= 0 && hClean(r[col.poi]) !== '')));
+  return { ok: true, H, col, codeCol, trip, monthCols, prevuCols, reelCols, dataRows, nTrip: trip.length, labelled, hasTitle: !!title };
+}
+// Parse « Overarching_parameters » → paramètres MMR/RBM par activité (intervalle mini, fréquence mini, niveau, cible/faisable).
+function parseOverarching(text) {
+  if (!text) return null; const rows = []; parseCSV(text, h => { rows.push(h); return null; }, rw => rows.push(rw));
+  let hi = -1; for (let i = 0; i < Math.min(rows.length, 6); i++) { if (rows[i].some(x => /activity category/i.test(hClean(x)))) { hi = i; break; } }
+  if (hi < 0) return null; const H = rows[hi].map(hClean);
+  const find = re => { for (let j = 0; j < H.length; j++) if (re.test(H[j])) return j; return -1; };
+  const cCat = find(/activity category/i), cNsite = find(/number of sites/i), cRisk = find(/risk level/i), cInt = find(/minimum required interval/i), cFreq = find(/minimum required frequency/i), cTarget = find(/targeted number of sites/i), cFeas = find(/feasible number of sites/i);
+  if (cCat < 0) return null;
+  const perAct = {};
+  rows.slice(hi + 1).forEach(r => {
+    const act = rbmActOf(r[cCat]); if (!act) return; const nsite = cNsite >= 0 ? toNum(r[cNsite]) : 0;
+    const row = { nsite: isNaN(nsite) ? 0 : nsite, risk: cRisk >= 0 ? toNum(r[cRisk]) : NaN, interval: cInt >= 0 ? toNum(r[cInt]) : NaN, freq: cFreq >= 0 ? toNum(r[cFreq]) : NaN, target: cTarget >= 0 ? toNum(r[cTarget]) : NaN, feasible: cFeas >= 0 ? toNum(r[cFeas]) : NaN };
+    if (!perAct[act] || row.nsite > perAct[act].nsite) perAct[act] = row;   // par activité : la ligne qui couvre le plus de sites
+  });
+  return Object.keys(perAct).length ? perAct : null;
+}
+// Parse « Risk_based_selection_ » → compte des sites classés et répartition de priorité (agrégats ; pas de rattachement par nom, pcode absent).
+function rbmRiskStats(text) {
+  if (!text) return null; const rows = []; parseCSV(text, h => { rows.push(h); return null; }, rw => rows.push(rw));
+  let hi = -1; for (let i = 0; i < Math.min(rows.length, 8); i++) { if (rows[i].some(x => /site name/i.test(hClean(x)))) { hi = i; break; } }
+  if (hi < 0) return null; const H = rows[hi].map(hClean);
+  const cSite = H.findIndex(h => /site name/i.test(h)); let cPrio = -1; for (let j = H.length - 1; j >= 0; j--) if (/priority|final score/i.test(H[j])) { cPrio = j; break; }
+  let n = 0; const prio = { 0: 0, 1: 0, 2: 0 };
+  rows.slice(hi + 1).forEach(r => { if (cSite < 0 || hClean(r[cSite]) === '') return; n++; if (cPrio >= 0) { const p = toNum(r[cPrio]); if (p === 0 || p === 1 || p === 2) prio[p]++; } });
+  return n ? { n, prio } : null;
+}
+// Construit les lignes planFull à partir du plan (fusion : met à jour les sites connus par act|code, ajoute les nouveaux, garde les autres).
+function rbmPlanRows(P, B, annee) {
+  const PF = P.planFull, pc = k => PF.cols.indexOf(k);
+  const prevByKey = new Map(PF.rows.map(r => [r[pc('act')] + '|' + r[0], r]));
+  const retired = new Map(Object.entries(PF.retired || {}));
+  const taken = new Set(PF.rows.map(r => r[pc('publicId')])); retired.forEach(v => taken.add(v[0]));
+  const g = (r, j) => { if (j === undefined || j < 0) return null; const v = r[j]; return v === undefined || NA_SET.has(v) ? null : String(v).trim(); };
+  const book = {}; const seen = new Set(); const byAct = {}; let added = 0, updated = 0, withGps = 0, skippedType = 0, noCode = 0;
+  const updates = new Map();   // key -> new row (replaces existing in place)
+  const fresh = [];
+  B.dataRows.forEach(r => {
+    const act = rbmActOf(r[B.col.type]); if (!act) { skippedType++; return; }
+    let code = g(r, B.codeCol); if (code === null) { code = g(r, B.col.p4); } if (code === null) { noCode++; return; } code = code.replace(/\.0$/, '');
+    const key = act + '|' + code; if (seen.has(key)) return; seen.add(key);
+    byAct[act] = (byAct[act] || 0) + 1;
+    const old = prevByKey.get(key) || null, ret = retired.get(key) || null;
+    // grille des mois : « 1 » actif, « 0 » / cellule vide inactif, « - » (notre export d'un site sans grille) = valeur conservée
+    const oldM = old ? String(old[pc('months')] || '------------').padEnd(12, '-') : null;
+    const m12 = B.monthCols.map((j, k) => { if (j < 0 || r[j] === undefined) return oldM ? oldM[k] : '-'; const v = String(r[j]).trim(); if (rbmTruthy(v)) return '1'; if (v === '-') return oldM ? oldM[k] : '-'; return '0'; }).join('');
+    const ayRaw = g(r, B.col.activeYear); const actif = ayRaw && /not active|inactif|inactive|^non$|^no$|^0$/i.test(ayRaw) ? 0 : (m12.indexOf('1') >= 0 ? 1 : (old ? old[pc('actif')] : 1));
+    const lat = r2n(g(r, B.col.lat)), lon = r2n(g(r, B.col.lon)); if (lat !== null && lon !== null) withGps++;
+    const planId = g(r, B.col.id);   // identifiant MEMS porté par notre propre export (S-XXXX-XXXX) : repris tel quel pour l'aller-retour
+    // sites CONNUS : on ne détruit pas la géographie canonique du registre ni l'identifiant ; on met à jour la grille, le GPS, l'actif, le partenaire, l'année.
+    const o = old ? { code, act, region: old[pc('region')], district: old[pc('district')], commune: old[pc('commune')], localite: old[pc('localite')], fo: g(r, B.col.fo) || old[pc('fo')],
+        lat: lat !== null ? lat : old[pc('lat')], lon: lon !== null ? lon : old[pc('lon')], actif, months: m12, tag: g(r, B.col.type) || old[pc('tag')], tagCode: old[pc('tagCode')] || P.spec.planTag[act] || act, tagGroup: g(r, B.col.type) || old[pc('tagGroup')],
+        fokontany: old[pc('fokontany')], foCode: old[pc('foCode')], annee, tagRev: old[pc('tagRev')], geom: old[pc('geom')], motif: old[pc('motif')], dvisit: old[pc('dvisit')], nbapres: old[pc('nbapres')], publicId: old[pc('publicId')], security: old[pc('security')] }
+      : { code, act, region: canonRegion(g(r, B.col.adm1)) || g(r, B.col.adm1), district: g(r, B.col.adm2), commune: g(r, B.col.adm3), localite: g(r, B.col.poi), fo: g(r, B.col.fo),
+        lat, lon, actif, months: m12, tag: g(r, B.col.type), tagCode: P.spec.planTag[act] || act, tagGroup: g(r, B.col.type), fokontany: g(r, B.col.adm4), foCode: null,
+        annee, tagRev: null, geom: null, motif: null, dvisit: null, nbapres: null,
+        publicId: (planId && /^S-[0-9A-Z]{4}-[0-9A-Z]{4}$/i.test(planId) && !taken.has(planId.toUpperCase())) ? planId.toUpperCase() : (ret ? ret[0] : newPublicId(taken)), security: ret ? ret[1] : 0 };
+    const rowArr = PF.cols.map(k => Object.prototype.hasOwnProperty.call(o, k) ? o[k] : null);
+    if (old) { updates.set(key, rowArr); updated++; } else { fresh.push(rowArr); added++; taken.add(o.publicId); }
+    book[key] = { p1: g(r, B.col.p1), p2: g(r, B.col.p2), p3: g(r, B.col.p3), p4: g(r, B.col.p4), cp: g(r, B.col.cp), fokontany: g(r, B.col.adm4), region: g(r, B.col.adm1), district: g(r, B.col.adm2), commune: g(r, B.col.adm3) };
+  });
+  // fusion : on garde toutes les lignes existantes (mises à jour sur place), on ajoute les nouvelles
+  const merged = PF.rows.map(row => { const k = row[pc('act')] + '|' + row[0]; return updates.has(k) ? updates.get(k) : row; }).concat(fresh);
+  return { merged, book, byAct, added, updated, withGps, skippedType, noCode, nPlan: seen.size };
+}
+function r2n(v) { const n = toNum(v); return isNaN(n) || !isFinite(n) ? null : r(n, 6); }
+function importRbmPlan(P0, planText, extra, meta) {
+  const P = JSON.parse(JSON.stringify(P0));
+  const B = parsePlanBook(planText); if (!B.ok) throw new Error(B.err);
+  if (!B.dataRows.length) throw new Error('aucun site reconnu dans le plan de suivi.');
+  const PF = P.planFull, pc = k => PF.cols.indexOf(k);
+  const yrs = {}; PF.rows.forEach(r => { const y = r[pc('annee')]; if (y !== null && y !== undefined && y !== '') yrs[y] = (yrs[y] || 0) + 1; });
+  const annee = +(Object.keys(yrs).sort((a, b) => yrs[b] - yrs[a])[0]) || new Date().getUTCFullYear();
+  const R = rbmPlanRows(P, B, annee);
+  if (!R.nPlan) throw new Error('aucun site du plan n’a pu être relié à une activité connue (colonne « Type d’activité »).');
+  PF.rows = R.merged; PF.rbmBook = Object.assign({}, PF.rbmBook || {}, R.book); PF.rbmYear = annee;
+  PF.srcCols = ['#', 'Field_Office', 'ADM1', 'ADMI1_PCOD', 'ADMIN2', 'ADM2_PCOD', 'ADMIN3', 'ADM3_PCOD', 'ADM4', 'ADM4_PCOD', 'POIName', 'Code POI', 'Latitude', 'Longitude', 'Nom du CP', "Type d'activité"];
+  // Overarching_parameters → configuration MMR par activité (fréquence mini = plancher ; intervalle mini = plancher ; l'intervalle RBM n'est jamais raccourci)
+  const over = parseOverarching(extra && extra.params); const applied = [];
+  if (over) { P.rbm = P.rbm || {}; P.rbm.mmr = P.rbm.mmr || {}; Object.keys(over).forEach(a => { const x = over[a]; const m = P.rbm.mmr[a] = P.rbm.mmr[a] || {}; if (isFinite(x.freq) && x.freq >= 1) m.minYear = Math.round(x.freq); if (isFinite(x.interval) && x.interval >= 1) m.floor = Math.round(x.interval); applied.push(a); }); P.rbm.mmrSrc = Object.assign({}, P.rbm.mmrSrc || {}, over); }
+  const risk = rbmRiskStats(extra && extra.risk);
+  P.updated = P.updated || {}; P.updated.PLAN = { date: meta.date, by: meta.by || '—', file: meta.file || '', rows: R.nPlan };
+  P.planVersion = (P.planVersion || 0) + 1; P.planEdited = { date: meta.date, by: meta.by || '—' };
+  return { P, report: { nPlan: R.nPlan, added: R.added, updated: R.updated, withGps: R.withGps, byAct: R.byAct, skippedType: R.skippedType, noCode: R.noCode, annee, overApplied: applied, risk, nTrip: B.nTrip, labelled: B.labelled, totalSites: PF.rows.length } };
+}
+function previewRbmPlan(P0, planText, extra) {
+  const B = parsePlanBook(planText);
+  if (!B.ok) return { rbm: true, err: B.err };
+  const annee = (() => { const PF = P0.planFull, pc = k => PF.cols.indexOf(k); const yrs = {}; PF.rows.forEach(r => { const y = r[pc('annee')]; if (y !== null && y !== undefined && y !== '') yrs[y] = (yrs[y] || 0) + 1; }); return +(Object.keys(yrs).sort((a, b) => yrs[b] - yrs[a])[0]) || new Date().getUTCFullYear(); })();
+  const R = rbmPlanRows(JSON.parse(JSON.stringify(P0)), B, annee);
+  const over = parseOverarching(extra && extra.params); const risk = rbmRiskStats(extra && extra.risk);
+  const monthsRead = B.monthCols.filter(j => j >= 0).length;
+  return { rbm: true, err: null, nPlan: R.nPlan, added: R.added, updated: R.updated, withGps: R.withGps, byAct: R.byAct, skippedType: R.skippedType, noCode: R.noCode, annee, monthsRead, nTrip: B.nTrip, labelled: B.labelled,
+    codeNamed: B.codeCol >= 0 && B.codeCol < B.H.length && hClean(B.H[B.codeCol]) !== '', over: over ? Object.keys(over).map(a => ({ act: a, interval: over[a].interval, freq: over[a].freq, risk: over[a].risk, target: over[a].target, feasible: over[a].feasible })) : null, risk, totalSites: P0.planFull.rows.length, rows: B.dataRows.length };
+}
 
 const src = (...fns) => fns.map(f => '    ' + f.toString()).join('\n');
 
@@ -362,14 +523,17 @@ module.exports = [
       "    const LAB_NORM = s => asciiFold(String(s === null || s === undefined ? '' : s)).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();\n" +
       "    const LAB_YESNO = new Map([['oui', '1'], ['yes', '1'], ['vrai', '1'], ['true', '1'], ['non', '0'], ['no', '0'], ['faux', '0'], ['false', '0'], ['partiellement', '2'], ['partiel', '2'], ['partially', '2'], ['en partie', '2']]);\n" +
       "    const LAB_NA = new Set(['', 'n a', 'na', 'nan', 'sans objet', 'non applicable', 'not applicable', 'none', 'null']);\n" +
-      "    const LAB_CODE = /^-?\\d+(\\.\\d+)?$|^(true|false)$/i;\n" + src(needOf, hClean, hKey, labelDicts, headerMap, makeGetters, isLabelRow, mapReport, readExtract, previewExtract) },
+      "    const LAB_CODE = /^-?\\d+(\\.\\d+)?$|^(true|false)$/i;\n" +
+      "    const SITE_ALIASES = { GD: ['dpname', 'poiname'], PECMAM: ['dpname', 'poiname'], MIARO: ['poiname', 'dpname'], SMP: ['adm4codesmp', 'adm4codesmpid', 'dpname', 'poiname'], RES: ['dpname', 'poiname'] };\n" +
+      src(siteSegKey, resolveSiteAlias, needOf, hClean, hKey, labelDicts, headerMap, makeGetters, isLabelRow, mapReport, readExtract, previewExtract) },
   { label: 'moteur : import du plan de suivi (colonnes tolérantes, case vide = mois inchangé, identifiants conservés) + aperçu',
     start: '    function importPlan(P0, text) {', end: '      P.planFull.rows = out;\n      return P;\n    }', replace: src(planKey, planColumns, importPlan, previewPlan) },
-  { label: 'moteur : détection de l’activité (aussi sur les en-têtes Kobo « groupe/variable »)',
-    start: '    function detectAct(P, headerLine) {', end: '      return bs >= 3 ? best : null;\n    }', replace: src(detectActDetail, detectAct) },
+  { label: 'moteur : détection de l’activité (aussi sur les en-têtes Kobo « groupe/variable ») + import du classeur RBM / plan de suivi',
+    start: '    function detectAct(P, headerLine) {', end: '      return bs >= 3 ? best : null;\n    }', replace: src(detectActDetail, detectAct, rbmActOf, rbmMonthOf, rbmTruthy, parsePlanBook, parseOverarching, rbmRiskStats, r2n, rbmPlanRows, importRbmPlan, previewRbmPlan) },
   { label: 'moteur : exports du lot planification',
     find: '    /*ENGINE-EXPORTS*/',
     replace: "    API.previewExtract = previewExtract; API.previewPlan = previewPlan; API.detectActDetail = detectActDetail; API.headerMap = headerMap; API.parseDay = parseDay;\n" +
+      "    API.previewRbmPlan = previewRbmPlan; API.importRbmPlan = importRbmPlan; API.parsePlanBook = parsePlanBook; API.rbmActOf = rbmActOf;\n" +
       "    { const importActivityRaw = API.importActivity; API.importActivity = (P0, act, text, meta) => { const prev = EX_CTX; EX_CTX = P0; try { return importActivityRaw(P0, act, text, meta); } finally { EX_CTX = prev; } }; }   // readExtract lit le registre et les codes administratifs de P0\n" +
       "    /*ENGINE-EXPORTS*/" },
 
