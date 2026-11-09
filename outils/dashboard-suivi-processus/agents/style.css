@@ -22,3 +22,11 @@
 .agx-dur .xh-r{grid-template-columns:150px 1fr 130px}
 .agx-xd .tw{max-height:none}
 .xd .xt td{font-size:12.5px}
+/* Qualité & acteurs : barre de sous-vues + en-tête court de chaque vue, renvoi « Durée des fiches » */
+.agx-sub-bar{margin:0 0 12px}
+.agx-vh{margin:0 0 14px}
+.agx-vh-t{font-size:16px;margin:0 0 2px;letter-spacing:-.01em}
+.agx-vh-s{margin:0;color:var(--muted);font-size:12.5px}
+.agx-xref{margin:10px 0 2px}
+.agx-xlink{background:none;border:0;color:var(--accent);font:inherit;font-weight:600;cursor:pointer;padding:0;text-decoration:underline}
+.agx-xlink:hover{color:var(--accent-ink)}

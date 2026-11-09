@@ -92,3 +92,40 @@ details.pl-method>summary{cursor:pointer;font-weight:600;padding:2px 0}
 .pl-off{align-items:center;font-size:12.5px;color:var(--muted)}
 .pl-ist{margin:4px 0}
 .rbm-grid .fld.pl-chk{justify-content:flex-start;flex-wrap:nowrap}
+/* simplification : bandeau « Ce mois-ci », sections repliables, légende repliable */
+.pl-month{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:10px 14px 12px;margin:0 0 14px}
+.pl-mhead{display:flex;align-items:center;gap:6px;margin:0 0 6px}
+.pl-mhead h3{margin:0;font-size:15px}
+.pl-month .pl-line{margin:0 0 6px}
+.pl-mrow2{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px}
+.pl-mrow2 .pl-line{flex:1 1 320px;margin:0}
+.pl-mrow2 .ov-gwrap{flex:0 0 auto}
+.pl-kpis{margin-top:8px}
+.pl-h3{margin:12px 0 6px}
+details.pl-check,details.pl-levels{margin:8px 0 0}
+details.pl-check>summary,details.pl-levels>summary{cursor:pointer;font-size:12.5px;font-weight:600;color:var(--muted);padding:3px 2px}
+details.pl-check[open]>summary,details.pl-levels[open]>summary{color:var(--ink)}
+details.pl-check .pl-warns{margin:6px 0 0}
+details.pl-levels .pl-kpis,details.pl-check .pl-warns{margin-top:6px}
+.pl-gnote{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);margin:0 0 8px}
+/* modèles Excel + aperçu AVANT → APRÈS (lot templates) */
+.pl-tplbar{align-items:center;gap:6px 10px;margin:0 0 6px;padding:6px 8px;border:1px dashed var(--line);border-radius:8px;background:var(--soft)}
+.pl-tpl-lbl{display:inline-flex;align-items:center;gap:5px;font-weight:600;font-size:12.5px;color:var(--ink)}
+.pl-added{color:var(--good,#14532d);font-weight:600}
+.pl-imp-ba{margin:10px 0;padding:8px 12px;border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px;background:var(--card)}
+.pl-imp-ba h3{margin:0 0 6px;font-size:13.5px;display:flex;align-items:center;gap:6px}
+.pl-ba-sec>p.hint{margin:6px 0 2px}
+.pl-baw{max-height:none;margin:2px 0 6px}
+table.pl-ba{border-collapse:collapse;font-size:12.5px;min-width:360px}
+table.pl-ba th,table.pl-ba td{padding:3px 10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+table.pl-ba th.num,table.pl-ba td.num{text-align:right;font-variant-numeric:tabular-nums}
+table.pl-ba thead th{background:var(--soft);font-size:11px;text-transform:uppercase;letter-spacing:.02em;color:var(--muted)}
+td.pl-ba-d.bad{color:var(--bad);font-weight:700}
+td.pl-ba-d.good{color:var(--good,#14532d);font-weight:600}
+.pl-cascade{display:flex;flex-direction:column;gap:6px;margin:6px 0}
+.pl-cascade .fld{flex-direction:column;align-items:stretch}
+.pl-addmodal{max-width:560px}
+.pl-addmodal .frow{gap:8px;flex-wrap:wrap}
+details.pl-legdet{margin:4px 0 8px}
+details.pl-legdet>summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--muted);padding:2px}
+details.pl-legdet .pl-legend{margin-top:4px}

@@ -14,3 +14,30 @@ tr.clk{cursor:pointer}tr.clk:hover td{background:var(--soft)}tr.clk:focus-visibl
 .f-off{opacity:.45}.f-off select{cursor:not-allowed}
 .f-sum{flex-basis:100%;font-size:12px;color:var(--muted);margin-top:2px}
 @media print{.xd-ov{display:none}}
+
+/* ===== Barre d'onglets groupée en familles (tient sur une ligne à 1440 px, scroll au téléphone) ===== */
+.tabs{padding-top:15px;overflow:visible;align-items:flex-end;flex-wrap:nowrap}
+.tabs button{font-size:13px;padding:8px 11px}
+.tabs button .tab-lbl{white-space:nowrap}
+.tabs button[data-fam-first]{margin-left:10px;padding-left:11px;border-left:1px solid var(--line)}
+.tabs button[data-fam-first]:first-child{margin-left:0;padding-left:11px;border-left:0}
+.tab-fam{position:absolute;left:11px;top:-13px;font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);white-space:nowrap;pointer-events:none;line-height:1}
+.tabs button[data-fam-first]:first-child .tab-fam{left:0}
+@media (max-width:1180px){.tabs{overflow-x:auto}}
+
+/* ===== Filtres : Activité + Période visibles ; Bureau/zone/partenaires repliés derrière « Filtres » ===== */
+.f-toggle{display:inline-flex;align-items:center;gap:7px}
+.f-caret{font-size:9px;color:var(--muted)}
+.f-badge{min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--accent);color:#fff;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;line-height:1}
+.btn.on .f-badge{background:#fff;color:var(--accent-ink)}
+.btn.on .f-caret{color:rgba(255,255,255,.9)}
+.f-panel{flex-basis:100%;display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-top:6px;padding-top:10px;border-top:1px dashed var(--line)}
+.f-panel.f-hidden{display:none}
+
+/* Ordre de lecture rétabli : la mise en page « maçonnée » (column-count) remplissait une colonne
+   entière avant l'autre → ordre haut-bas scrambled. Grille à flux par LIGNES = gauche→droite dans
+   l'ordre du DOM (= l'ordre voulu par chaque onglet). Les cartes « wide » occupent toute la largeur. */
+.masonry{column-count:unset!important;column-gap:0!important;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}
+.masonry>.card{width:auto;margin:0;break-inside:auto}
+.masonry>.card.wide{grid-column:1/-1;column-span:unset}
+@media(max-width:860px){.masonry{grid-template-columns:1fr}.masonry>.card.wide{grid-column:1/-1}}

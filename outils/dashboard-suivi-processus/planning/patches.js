@@ -499,6 +499,159 @@ function previewRbmPlan(P0, planText, extra) {
     codeNamed: B.codeCol >= 0 && B.codeCol < B.H.length && hClean(B.H[B.codeCol]) !== '', over: over ? Object.keys(over).map(a => ({ act: a, interval: over[a].interval, freq: over[a].freq, risk: over[a].risk, target: over[a].target, feasible: over[a].feasible })) : null, risk, totalSites: P0.planFull.rows.length, rows: B.dataRows.length };
 }
 
+// ======================================================================= Référentiel des zones administratives (.dbf d'un shapefile)
+// Parseur dBase III/IV PUR (aucune dépendance, comme le lecteur XLSX) : en-tête, descripteurs de champ, enregistrements.
+// Il alimente le même référentiel que le moteur pour résoudre région/district par P-code (spec.adm1 / adm2, voir districtOf).
+function dbfLooksLike(u8) {
+  if (!u8 || u8.length < 33) return false;
+  const known = [0x02, 0x03, 0x04, 0x05, 0x30, 0x31, 0x32, 0x43, 0x63, 0x83, 0x8b, 0x8e, 0xf5, 0xfb].indexOf(u8[0]) >= 0;
+  if (!known) return false;
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const hdr = dv.getUint16(8, true), rec = dv.getUint16(10, true);
+  if (hdr < 33 || hdr > (1 << 20)) return false;
+  if (rec < 1 || rec > (1 << 16)) return false;
+  if (u8[2] > 12 || u8[3] > 31) return false;   // mois / jour de la date de l'en-tête
+  return true;
+}
+function parseDbf(buf, cpgText) {
+  // En-tête : 0 version · 4-7 nb d'enregistrements · 8-9 taille d'en-tête · 10-11 taille d'un enregistrement · 29 encodage.
+  const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  if (u8.length > DBF_MAX) throw new Error('fichier .dbf trop volumineux (' + Math.round(u8.length / 1e6) + ' Mo, plafond 50 Mo).');
+  if (u8.length < 33) throw new Error('fichier .dbf tronqué : en-tête incomplet.');
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const version = u8[0], nRecHdr = dv.getUint32(4, true), headerSize = dv.getUint16(8, true), recSize = dv.getUint16(10, true), langId = u8[29];
+  if (headerSize < 33 || headerSize > u8.length) throw new Error('en-tête .dbf incohérent (taille déclarée ' + headerSize + ', fichier ' + u8.length + ' octets).');
+  // Descripteurs de champ : 32 octets chacun à partir de l'octet 32, jusqu'au terminateur 0x0D.
+  const fields = []; let p = 32, off = 1;
+  while (p + 1 <= u8.length && u8[p] !== 0x0D) {
+    if (p + 32 > headerSize) throw new Error('descripteurs de champ corrompus (terminateur 0x0D absent avant les données).');
+    let nm = ''; for (let i = 0; i < 11; i++) { const c = u8[p + i]; if (c === 0) break; nm += String.fromCharCode(c); }
+    nm = nm.trim();
+    const type = String.fromCharCode(u8[p + 11] || 0x43), len = u8[p + 16], dec = u8[p + 17];
+    fields.push({ name: nm, type: type, len: len, dec: dec, off: off });
+    off += len; p += 32;
+    if (fields.length > 4096) throw new Error('fichier .dbf refusé : plus de 4096 champs.');
+  }
+  if (u8[p] !== 0x0D) throw new Error('terminateur d’en-tête (0x0D) introuvable : ce n’est pas un fichier dBase valide.');
+  if (!fields.length) throw new Error('aucun champ décrit dans l’en-tête .dbf.');
+  const sumLen = off;   // 1 (indicateur de suppression) + somme des longueurs des champs
+  if (recSize && recSize !== sumLen) throw new Error('taille d’enregistrement incohérente (déclarée ' + recSize + ', calculée ' + sumLen + ' d’après les champs) : fichier .dbf corrompu.');
+  const stride = recSize || sumLen, dataStart = headerSize;
+  const avail = Math.max(0, Math.floor((u8.length - dataStart) / stride));
+  const nRec = nRecHdr > 0 && nRecHdr <= avail ? nRecHdr : avail;
+  if (nRec > 5e6) throw new Error('fichier .dbf refusé : ' + nRec + ' enregistrements (plafond 5 000 000).');
+  // Encodage : .cpg s'il est fourni, sinon UTF-8 puis repli Windows-1252 si des caractères de remplacement apparaissent.
+  let enc = 'utf-8';
+  if (cpgText) { const c = String(cpgText).toLowerCase(); if (/utf\-?8|65001/.test(c)) enc = 'utf-8'; else if (/1252|8859\-?1|8859_1|latin\-?1|latin1|ansi|windows/.test(c)) enc = 'windows-1252'; }
+  else { const probe = u8.subarray(dataStart, Math.min(u8.length, dataStart + Math.min(stride * nRec, 262144))); let bad = 0; try { bad = (new TextDecoder('utf-8').decode(probe).match(/�/g) || []).length; } catch (e) { bad = 1; } if (bad > 0) enc = 'windows-1252'; }
+  let DEC; try { DEC = new TextDecoder(enc); } catch (e) { DEC = new TextDecoder('utf-8'); enc = 'utf-8'; }
+  const cell = (start, len) => DEC.decode(u8.subarray(start, start + len)).replace(/\u0000/g, '').trim();
+  const records = []; let deleted = 0;
+  for (let k = 0; k < nRec; k++) {
+    const base = dataStart + k * stride; if (base + stride > u8.length) break;
+    const flag = u8[base]; if (flag === 0x2A) { deleted++; continue; }   // 0x2A = enregistrement supprimé
+    if (flag === 0x1A) break;   // marqueur de fin de fichier
+    records.push(fields.map(f => cell(base + f.off, f.len)));
+  }
+  return { fields: fields, records: records, encoding: enc, version: version, langId: langId, nRecords: records.length, deleted: deleted, nFields: fields.length };
+}
+// Reconnaissance d'une colonne par son NOM (jamais par le contenu) : niveau 1 Région … 4 Fokontany, nom ou P-code, lat / lon.
+function admKey(h) { return asciiFold(String(h === null || h === undefined ? '' : h)).toLowerCase().replace(/[^a-z0-9]+/g, ''); }
+function admClassify(header) {
+  const k = admKey(header); if (!k) return null;
+  if (/^(lat|latitude|ycoord|ycoordinate|pointy|y)$/.test(k)) return { kind: 'lat' };
+  if (/^(lon|lng|long|longitude|xcoord|xcoordinate|pointx|x)$/.test(k)) return { kind: 'lon' };
+  let m = k.match(/^adm[i]?([1-5])(?:pcode|pcod|pc|code)$/); if (m) return { level: +m[1], kind: 'pcode' };
+  m = k.match(/^p(?:code)?([1-5])$/); if (m) return { level: +m[1], kind: 'pcode' };
+  m = k.match(/^([1-5])pcode$/); if (m) return { level: +m[1], kind: 'pcode' };
+  const LBL = { region: 1, reg: 1, district: 2, dist: 2, commune: 3, comm: 3, fokontany: 4, fokotany: 4, village: 5 };
+  for (const w in LBL) { if (k === w + 'pcode' || k === w + 'pcod' || k === w + 'pc' || k === w + 'code') return { level: LBL[w], kind: 'pcode' }; }
+  m = k.match(/^adm[i]?n?([1-5])(?:name|nm|fr|en|lib|libelle|label)?$/); if (m) return { level: +m[1], kind: 'name' };
+  for (const w in LBL) { if (k === w || k === w + 'name' || k === w + 'nm') return { level: LBL[w], kind: 'name' }; }
+  return null;
+}
+// Normalise chaque enregistrement en { names:[adm1..admN], pcodes:[adm1..admN], lat?, lng? } d'après les colonnes reconnues.
+function admFromDbf(fields, records) {
+  const lvl = Object.create(null); let latCol = -1, lonCol = -1; const recognized = [];
+  fields.forEach((f, j) => {
+    const c = admClassify(f.name); if (!c) return;
+    if (c.kind === 'lat') { if (latCol < 0) { latCol = j; recognized.push([f.name, 'Latitude']); } return; }
+    if (c.kind === 'lon') { if (lonCol < 0) { lonCol = j; recognized.push([f.name, 'Longitude']); } return; }
+    const n = c.level; if (!lvl[n]) lvl[n] = { name: -1, pcode: -1 };
+    if (c.kind === 'name' && lvl[n].name < 0) { lvl[n].name = j; recognized.push([f.name, ADM_LABEL[n] + ' (nom)']); }
+    if (c.kind === 'pcode' && lvl[n].pcode < 0) { lvl[n].pcode = j; recognized.push([f.name, ADM_LABEL[n] + ' (P-code)']); }
+  });
+  const levels = Object.keys(lvl).map(Number).sort((a, b) => a - b);
+  const maxLevel = levels.length ? levels[levels.length - 1] : 0;
+  const out = [];
+  records.forEach(r => {
+    const names = [], pcodes = [];
+    for (let n = 1; n <= maxLevel; n++) { const L = lvl[n] || { name: -1, pcode: -1 }; names.push(L.name >= 0 ? (r[L.name] || '') : ''); pcodes.push(L.pcode >= 0 ? (r[L.pcode] || '') : ''); }
+    const lat = latCol >= 0 ? toNum(r[latCol]) : NaN, lng = lonCol >= 0 ? toNum(r[lonCol]) : NaN;
+    out.push({ names: names, pcodes: pcodes, lat: isFinite(lat) ? lat : null, lng: isFinite(lng) ? lng : null });
+  });
+  return { records: out, levels: levels, maxLevel: maxLevel, lvl: lvl, latCol: latCol, lonCol: lonCol, recognized: recognized };
+}
+// Vérification SANS écriture : nb de zones par niveau, colonnes reconnues, exemples, P-codes manquants, nouveautés vs référentiel.
+function previewAdmin(P, parsed) {
+  const A = admFromDbf(parsed.fields, parsed.records);
+  if (!A.maxLevel) throw new Error('aucune colonne de zone administrative reconnue (ADM1…ADM4, Région / District / Commune / Fokontany, et leurs P-codes). Vérifiez les en-têtes de la table.');
+  const pairs = {}; for (let n = 1; n <= A.maxLevel; n++) pairs[n] = new Map();
+  A.records.forEach(rec => { for (let n = 1; n <= A.maxLevel; n++) { const nm = String(rec.names[n - 1] || '').trim(), pc = String(rec.pcodes[n - 1] || '').trim(); if (pc && ADM_SAFE(pc) && nm && !pairs[n].has(pc)) pairs[n].set(pc, nm); } });
+  const curOf = n => (P.spec && P.spec['adm' + n]) || {};
+  const perLevel = [];
+  for (let n = 1; n <= A.maxLevel; n++) {
+    const L = A.lvl[n] || { name: -1, pcode: -1 };
+    const names = new Set(); let withName = 0, missPc = 0, withPc = 0;
+    A.records.forEach(rec => { const nm = String(rec.names[n - 1] || '').trim(), pc = String(rec.pcodes[n - 1] || '').trim(); if (nm) { names.add(nm); withName++; if (!pc) missPc++; } if (pc) withPc++; });
+    const cur = curOf(n); let added = 0, changed = 0, same = 0;
+    pairs[n].forEach((nm, pc) => { const val = n === 1 ? (canonRegion(nm) || nm) : nm; const had = Object.prototype.hasOwnProperty.call(cur, pc); if (!had) added++; else if (cur[pc] !== val) changed++; else same++; });
+    perLevel.push({ level: n, label: ADM_LABEL[n], nameCol: L.name >= 0 ? parsed.fields[L.name].name : null, pcodeCol: L.pcode >= 0 ? parsed.fields[L.pcode].name : null, distinctNames: names.size, distinctPcodes: pairs[n].size, withName: withName, withPcode: withPc, missingPcode: missPc, added: added, changed: changed, same: same });
+  }
+  const examples = A.records.slice(0, 6).map(rec => { const parts = []; for (let n = 1; n <= A.maxLevel; n++) { const nm = String(rec.names[n - 1] || '').trim(); if (nm) parts.push(nm); } return { path: parts.join(' › '), pcode: String(rec.pcodes[A.maxLevel - 1] || '').trim(), lat: rec.lat, lng: rec.lng }; });
+  let withGps = 0; A.records.forEach(rec => { if (rec.lat !== null && rec.lng !== null) withGps++; });
+  return { maxLevel: A.maxLevel, perLevel: perLevel, examples: examples, recognized: A.recognized, gps: { lat: A.latCol >= 0 ? parsed.fields[A.latCol].name : null, lon: A.lonCol >= 0 ? parsed.fields[A.lonCol].name : null, withGps: withGps }, nRecords: A.records.length, encoding: parsed.encoding, deleted: parsed.deleted || 0, nFields: parsed.nFields, totalAdded: perLevel.reduce((a, x) => a + x.added, 0), totalChanged: perLevel.reduce((a, x) => a + x.changed, 0) };
+}
+// Application : enrichit spec.adm1…adm4 (P-code → nom, source unique utilisée par le moteur), ré-aligne par P-code les sites
+// qui portent un P-code (rbmBook) sans jamais supprimer un site, puis journalise. refreshPlanTables recalcule le reste.
+function importAdmin(P0, parsed, meta) {
+  const P = JSON.parse(JSON.stringify(P0));
+  const A = admFromDbf(parsed.fields, parsed.records);
+  if (!A.maxLevel) throw new Error('aucune colonne de zone administrative reconnue dans le fichier .dbf.');
+  P.spec = P.spec || {};
+  const target = n => { const key = 'adm' + n; if (!P.spec[key] || typeof P.spec[key] !== 'object') P.spec[key] = {}; return P.spec[key]; };
+  const counts = {}, pairs = {}; for (let n = 1; n <= A.maxLevel; n++) { pairs[n] = new Map(); counts[n] = { added: 0, changed: 0, same: 0, names: new Set(), pcodes: new Set() }; }
+  A.records.forEach(rec => { for (let n = 1; n <= A.maxLevel; n++) { const nm = String(rec.names[n - 1] || '').trim(), pc = String(rec.pcodes[n - 1] || '').trim(); if (!pc || !ADM_SAFE(pc)) continue; counts[n].pcodes.add(pc); if (nm) counts[n].names.add(nm); if (nm && !pairs[n].has(pc)) pairs[n].set(pc, nm); } });
+  for (let n = 1; n <= A.maxLevel; n++) { const map = target(n), c = counts[n]; pairs[n].forEach((nm, pc) => { const val = n === 1 ? (canonRegion(nm) || nm) : nm; const had = Object.prototype.hasOwnProperty.call(map, pc); if (!had) c.added++; else if (map[pc] !== val) c.changed++; else c.same++; map[pc] = val; }); }
+  // ré-alignement des sites par P-code (uniquement ceux dont le P-code est connu via rbmBook) : complète / renomme, n'efface jamais.
+  const PF = P.planFull, pc = k => PF.cols.indexOf(k), book = PF.rbmBook || {};
+  const ADM1 = P.spec.adm1 || {}, ADM2 = P.spec.adm2 || {}, ADM3 = P.spec.adm3 || {}, ADM4 = P.spec.adm4 || {};
+  const byPrefix = (map, code) => { if (typeof code !== 'string' || !code) return null; for (let L = code.length; L >= 2; L--) { const k = code.slice(0, L); if (Object.prototype.hasOwnProperty.call(map, k)) return map[k]; } return null; };
+  let siteReRes = 0;
+  PF.rows.forEach(r => {
+    const b = book[r[pc('act')] + '|' + r[0]]; if (!b) return;
+    const reg = (b.p1 && ADM1[b.p1]) || (b.p3 ? byPrefix(ADM1, b.p3) : null);
+    const dis = (b.p2 && ADM2[b.p2]) || (b.p3 ? byPrefix(ADM2, b.p3) : null);
+    const com = b.p3 && ADM3[b.p3] ? ADM3[b.p3] : null, fok = b.p4 && ADM4[b.p4] ? ADM4[b.p4] : null;
+    let touched = false;
+    if (reg) { const v = canonRegion(reg) || reg; if (r[pc('region')] !== v) { r[pc('region')] = v; touched = true; } }
+    if (dis && r[pc('district')] !== dis) { r[pc('district')] = dis; touched = true; }
+    if (com && r[pc('commune')] !== com) { r[pc('commune')] = com; touched = true; }
+    if (fok && r[pc('fokontany')] !== fok) { r[pc('fokontany')] = fok; touched = true; }
+    if (touched) siteReRes++;
+  });
+  P.adminRef = { date: meta.date, by: meta.by || '—', file: meta.file || '', maxLevel: A.maxLevel, records: A.records.length, counts: {} };
+  for (let n = 1; n <= A.maxLevel; n++) P.adminRef.counts[n] = { names: counts[n].names.size, pcodes: counts[n].pcodes.size, added: counts[n].added, changed: counts[n].changed };
+  P.updated = P.updated || {}; P.updated.ADMIN = { date: meta.date, by: meta.by || '—', file: meta.file || '', rows: A.records.length };
+  return { P: P, report: { maxLevel: A.maxLevel, nRecords: A.records.length, counts: P.adminRef.counts, siteReResolved: siteReRes } };
+}
+// Résout un P-code en région / district / commune / fokontany par préfixe, avec le référentiel courant (même logique que districtOf).
+function admResolve(P, code) {
+  const sp = P.spec || {};
+  const by = map => { if (!map || typeof code !== 'string' || !code) return null; for (let L = code.length; L >= 2; L--) { const k = code.slice(0, L); if (Object.prototype.hasOwnProperty.call(map, k)) return map[k]; } return null; };
+  return { region: by(sp.adm1), district: by(sp.adm2), commune: by(sp.adm3), fokontany: by(sp.adm4) };
+}
+
 const src = (...fns) => fns.map(f => '    ' + f.toString()).join('\n');
 
 // ======================================================================= ÉCRAN (zone 1814-2222 du socle) — textes injectés
@@ -528,12 +681,18 @@ module.exports = [
       src(siteSegKey, resolveSiteAlias, needOf, hClean, hKey, labelDicts, headerMap, makeGetters, isLabelRow, mapReport, readExtract, previewExtract) },
   { label: 'moteur : import du plan de suivi (colonnes tolérantes, case vide = mois inchangé, identifiants conservés) + aperçu',
     start: '    function importPlan(P0, text) {', end: '      P.planFull.rows = out;\n      return P;\n    }', replace: src(planKey, planColumns, importPlan, previewPlan) },
-  { label: 'moteur : détection de l’activité (aussi sur les en-têtes Kobo « groupe/variable ») + import du classeur RBM / plan de suivi',
-    start: '    function detectAct(P, headerLine) {', end: '      return bs >= 3 ? best : null;\n    }', replace: src(detectActDetail, detectAct, rbmActOf, rbmMonthOf, rbmTruthy, parsePlanBook, parseOverarching, rbmRiskStats, r2n, rbmPlanRows, importRbmPlan, previewRbmPlan) },
+  { label: 'moteur : détection de l’activité (aussi sur les en-têtes Kobo « groupe/variable ») + import du classeur RBM / plan de suivi + référentiel .dbf des zones',
+    start: '    function detectAct(P, headerLine) {', end: '      return bs >= 3 ? best : null;\n    }',
+    replace: "    const DBF_MAX = 50e6;\n" +
+      "    const ADM_LABEL = { 1: 'Région', 2: 'District', 3: 'Commune', 4: 'Fokontany', 5: 'Village' };\n" +
+      "    const ADM_SAFE = k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype';\n" +
+      src(detectActDetail, detectAct, rbmActOf, rbmMonthOf, rbmTruthy, parsePlanBook, parseOverarching, rbmRiskStats, r2n, rbmPlanRows, importRbmPlan, previewRbmPlan,
+        dbfLooksLike, parseDbf, admKey, admClassify, admFromDbf, previewAdmin, importAdmin, admResolve) },
   { label: 'moteur : exports du lot planification',
     find: '    /*ENGINE-EXPORTS*/',
     replace: "    API.previewExtract = previewExtract; API.previewPlan = previewPlan; API.detectActDetail = detectActDetail; API.headerMap = headerMap; API.parseDay = parseDay;\n" +
       "    API.previewRbmPlan = previewRbmPlan; API.importRbmPlan = importRbmPlan; API.parsePlanBook = parsePlanBook; API.rbmActOf = rbmActOf;\n" +
+      "    API.parseDbf = parseDbf; API.dbfLooksLike = dbfLooksLike; API.previewAdmin = previewAdmin; API.importAdmin = importAdmin; API.admResolve = admResolve; API.admFromDbf = admFromDbf;\n" +
       "    { const importActivityRaw = API.importActivity; API.importActivity = (P0, act, text, meta) => { const prev = EX_CTX; EX_CTX = P0; try { return importActivityRaw(P0, act, text, meta); } finally { EX_CTX = prev; } }; }   // readExtract lit le registre et les codes administratifs de P0\n" +
       "    /*ENGINE-EXPORTS*/" },
 

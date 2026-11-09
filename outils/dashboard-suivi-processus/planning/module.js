@@ -9,6 +9,7 @@
   const PL_RL = { high: 'elevee', med: 'moyenne', low: 'faible', never: 'non_mesure' };
 
   if (window.__dash) window.__dash.pl = { rbmCfg: () => rbmCfg(), rbmCompute: c => rbmCompute(c), plExecution: o => plExecution(o), monthsDiff: (a, b) => plMD(a, b) };
+  /*DEBUG*/ if (window.__dash) window.__dash.plTpl = { siteActifSheets: () => plSiteActifSheets(), planSheets: () => plPlanSheets(), writeXlsx: s => plWriteXlsx(s), parseShp: b => plParseShp(b), buildAdminGeo: (shp, p) => plBuildAdminGeo(shp, p), siteActifPrepare: (t, n) => plSiteActifPrepare(t, n), admLists: () => plAdmLists(), parseDbf: (b, c) => ENGINE.parseDbf(b, c) };
   function plNorm(s) { return String(s === null || s === undefined ? '' : s).normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
   function plMD(a, b) { const x = String(a).split('-').map(Number), y = String(b).split('-').map(Number); return (y[0] - x[0]) * 12 + (y[1] - x[1]); }
   function plKey(s) { return s.act + '|' + s.code; }
@@ -357,7 +358,7 @@
   function plLevelsText(cfg) { return 'élevé ≥ ' + cfg.thHigh + ' · moyen ' + cfg.thMed + '–' + cfg.thHigh + ' · faible < ' + cfg.thMed + ' · jamais visité = catégorie à part (risque non mesuré)'; }
 
   // ------------------------------------------------------------------ ÉCRAN « Planification »
-  const PL_SUBS = [['prio', 'Plan du mois'], ['grid', 'Grille'], ['cap', 'Capacité'], ['cfg', 'Réglages'], ['exp', 'Exports']];
+  const PL_SUBS = [['prio', 'Priorités du mois'], ['grid', 'Plan de suivi'], ['cap', 'Capacité'], ['cfg', 'Paramètres RBM'], ['exp', 'Export']];
   function plRenderPlanning(main) {
     const cfg = rbmCfg(), R = rbmCompute(cfg), sc = siteFiltered(R.scored), all = siteFiltered(R.all);
     plBanner(main, R, cfg, sc);
@@ -381,26 +382,41 @@
       'Capacité : ' + fmt(C.total) + ' visites par mois (' + (C.fos.length === 1 ? 'bureau ' + C.fos[0] : fmt(C.fos.length) + ' bureaux') + '), moyenne des visites réalisées en ' + ci.ms.map(monthLabel).join(', ') + ', les 3 derniers mois complets.' + (ci.incomplete ? ' ' + monthLabel(ci.incomplete.m) + ' est exclu : mois incomplet (données jusqu’au ' + dFrUI(ci.incomplete.end) + ', ' + fmt(ci.incomplete.n) + ' visites).' : '') + (Object.keys(cfg.cap).length ? ' Capacité saisie à la main pour ' + fmt(Object.keys(cfg.cap).length) + ' bureau(x).' : ''),
       !C.total ? 'Capacité nulle : aucun site ne peut être planifié. Saisissez une capacité dans les réglages.' : k > 1.05 ? 'Le plan ne peut retenir qu’environ 1 visite due sur ' + fmt(k, 1) + ' : ' + fmt(over.length) + ' sites dus resteront sans visite d’ici ' + monthLabel(last) + ', faute de capacité. ' + fmt(ina.length) + ' sites dus tombent un mois où la grille dit Non.' : 'La capacité couvre la demande moyenne. ' + fmt(over.length) + ' sites dus ne sont pas retenus certains mois, ' + fmt(ina.length) + ' sont inactifs le mois dû.',
       'Sources : registre des sites (onglet Sites), visites exploitables jusqu’au ' + dFrUI(R.dataEnd) + ', capacité des bureaux. Calcul du ' + dFrUI(R.ref) + ', jour local de Madagascar ; les mois passés ne montrent que le réalisé.' + (F.act !== 'ALL' ? ' La capacité d’un bureau est partagée entre activités : avec un filtre d’activité, les sites retenus dépendent aussi des autres activités.' : '')].join('\n\n');
+    // bandeau titré « Ce mois-ci » : phrase clé (+ mini-jauge si disponible), 4 KPIs, puis détails repliables
+    const sec = el('section', { class: 'pl-month' });
+    sec.appendChild(el('div', { class: 'pl-mhead' }, [el('h3', { class: 'pl-h3', text: 'Ce mois-ci' }), infoBtn(detail)]));
     const line = el('div', { class: 'pl-line' + (k > 1.05 || !C.total ? ' pl-warn' : '') }, [
       el('span', { class: 'pl-l1', text: 'Demande ≈ ' + fmt(d.avg) + ' visites/mois' }), el('span', { class: 'pl-l2', text: 'capacité ' + fmt(C.total) }),
-      C.total && k > 1.05 ? el('span', { class: 'pl-l3', text: '1 visite due sur ' + fmt(k, 1) + ' retenue' }) : null, infoBtn(detail),
+      C.total && k > 1.05 ? el('span', { class: 'pl-l3', text: '1 visite due sur ' + fmt(k, 1) + ' retenue' }) : null,
       el('span', { class: 'pl-acts' }, [btn('Fréquences', () => plGo('cfg'), 'sm'), btn('Capacité', () => plGo('cap'), 'sm'), btn('Dus non retenus', () => { PLS.focus = 'cap'; plGo('prio'); }, 'sm')])]);
-    main.appendChild(line);
+    let gauge = null;
+    if (typeof ovGauge === 'function') { try { const raw = d.avg ? C.total / d.avg * 100 : null; const cov = raw === null ? null : Math.min(100, raw); gauge = ovGauge(cov, { size: 96, target: 100, na: cov === null, label: 'Demande couverte', sub: raw !== null && raw > 100 ? 'capacité ≫ demande' : null }); } catch (e) { gauge = null; } }
+    sec.appendChild(gauge ? el('div', { class: 'pl-mrow2' }, [line, gauge]) : line);
+    const def = t => t + '\nNiveaux : ' + plLevelsText(cfg) + '.';
+    sec.appendChild(el('div', { class: 'kpis pl-kpis' }, [
+      kpi(fmt(cnt('high')), 'Risque élevé', fq('high'), 'bad', def('Sites visités dont le score de risque (0 à 100) atteint ' + cfg.thHigh + '. Visite ' + fq('high') + '.')),
+      kpi(fmt(cnt('never')), 'Jamais visités', 'sur ' + fmt(sc.length) + ' sites actifs', 'na', 'Sites actifs sans aucune visite exploitable. Leur risque n’est pas mesuré : ils forment une catégorie à part, visitée ' + (cfg.neverHigh ? fq('high') + ' (traités comme élevés)' : fq('never')) + '.'),
+      kpi(fmt(pl.length), 'Visites planifiées', monthLabel(R.months[0]) + ' à ' + monthLabel(last), null, 'Visites retenues sur ' + R.months.map(monthLabel).join(', ') + ', dans la limite de la capacité de chaque bureau.' + (R.frozen.length ? ' Plans validés repris tels quels : ' + R.frozen.map(monthLabel).join(', ') + '.' : '')),
+      kpi(fmt(over.length), 'Dus non retenus', 'faute de capacité', over.length ? 'bad' : 'good', fmt(over.length) + ' sites sur ' + fmt(sc.length) + ' sont dus et actifs le mois dû, mais restent sans visite sur tout l’horizon parce que la capacité du bureau est atteinte. Leviers : fréquences, capacité, horizon.')]));
     const chips = [];
     (cfg.warn || []).forEach(w => chips.push(el('span', { class: 'pl-wchip' }, ['Seuils corrigés', infoBtn(w)])));
     R.noGrid.forEach(m => chips.push(el('span', { class: 'pl-wchip' }, ['Grille ' + m.slice(0, 4) + ' non renseignée', infoBtn(monthLabel(m) + ' : les sites y sont supposés actifs. Importez le registre ' + m.slice(0, 4) + ' pour confirmer.'), btn('Importer', () => plGoTab('data'), 'sm')])));
     const sea = plSeasonality(); if (sea.length) chips.push(el('span', { class: 'pl-wchip' }, ['Grille d’activation à vérifier', infoBtn(sea.length + ' mois × activité sans visite ou presque : ' + sea.map(p => ACT[p.act].short + ' ' + monthLabel(p.m) + ' (' + p.n + ')').join(', ') + '.'), btn('Voir', () => plGoTab('sites'), 'sm')]));
     const mb = R.mmrBad.filter(s => J.has(s.j)); if (mb.length) chips.push(el('span', { class: 'pl-wchip' }, ['Plancher MMR inatteignable : ' + fmt(mb.length) + ' sites', infoBtn('L’intervalle RBM l’emporte sur le plancher MMR (' + Array.from(new Set(mb.map(s => ACT[s.act].short))).join(', ') + ').'), btn('Voir', () => plGo('cap'), 'sm')]));
-    if (chips.length) main.appendChild(el('div', { class: 'pl-warns' }, chips));
-    const def = t => t + '\nNiveaux : ' + plLevelsText(cfg) + '.';
-    main.appendChild(el('div', { class: 'kpis' }, [
-      kpi(fmt(cnt('high')), 'Risque élevé', fq('high'), 'bad', def('Sites visités dont le score de risque (0 à 100) atteint ' + cfg.thHigh + '. Visite ' + fq('high') + '.')),
+    if (chips.length) {
+      const dc = el('details', { class: 'pl-check' }); if (chips.length <= 2) dc.open = true;
+      dc.appendChild(el('summary', { text: 'À vérifier (' + chips.length + ')' }));
+      dc.appendChild(el('div', { class: 'pl-warns' }, chips));
+      sec.appendChild(dc);
+    }
+    const dl = el('details', { class: 'pl-levels' });
+    dl.appendChild(el('summary', { text: 'Voir le détail des niveaux' }));
+    dl.appendChild(el('div', { class: 'kpis pl-kpis' }, [
       kpi(fmt(cnt('med')), 'Risque moyen', fq('med'), 'mid', def('Sites visités au score de risque entre ' + cfg.thMed + ' et ' + cfg.thHigh + '. Visite ' + fq('med') + '.')),
       kpi(fmt(cnt('low')), 'Risque faible', fq('low'), 'good', def('Sites visités au score de risque inférieur à ' + cfg.thMed + '. Visite ' + fq('low') + '.')),
-      kpi(fmt(cnt('never')), 'Jamais visités', 'sur ' + fmt(sc.length) + ' sites actifs', 'na', 'Sites actifs sans aucune visite exploitable. Leur risque n’est pas mesuré : ils forment une catégorie à part, visitée ' + (cfg.neverHigh ? fq('high') + ' (traités comme élevés)' : fq('never')) + '.'),
-      kpi(fmt(pl.length), 'Visites planifiées', monthLabel(R.months[0]) + ' à ' + monthLabel(last), null, 'Visites retenues sur ' + R.months.map(monthLabel).join(', ') + ', dans la limite de la capacité de chaque bureau.' + (R.frozen.length ? ' Plans validés repris tels quels : ' + R.frozen.map(monthLabel).join(', ') + '.' : '')),
-      kpi(fmt(over.length), 'Dus non retenus', 'faute de capacité', over.length ? 'bad' : 'good', fmt(over.length) + ' sites sur ' + fmt(sc.length) + ' sont dus et actifs le mois dû, mais restent sans visite sur tout l’horizon parce que la capacité du bureau est atteinte. Leviers : fréquences, capacité, horizon.'),
       kpi(fmt(ina.length), 'Dus inactifs', 'grille à Non le mois dû', ina.length ? 'mid' : 'good', 'Sites dont l’échéance tombe un mois où la grille d’activation dit Non (ou n’est pas renseignée). Ce n’est pas un manque de capacité.')]));
+    sec.appendChild(dl);
+    main.appendChild(sec);
   }
 
   // ---- vue « Priorités du mois » : tournées par commune, sites planifiés, dus non planifiés, dus inactifs
@@ -418,6 +434,7 @@
     const vObs = plObsVpd();
     const order = 'Ordre de sélection dans un bureau : score de risque décroissant. À égalité : retard le plus long, puis commune qui regroupe le plus de sites dus ce mois (tournées), puis activité la moins couverte, puis identifiant.';
     main.appendChild(el('div', { class: 'frow pl-mrow' }, [el('label', { class: 'fld' }, ['Mois', msel]), infoBtn(order)]));
+    main.appendChild(plH3('Visites prévues', 'Sites retenus en ' + monthLabel(m) + ', regroupés par commune puis par site.'));
     main.appendChild(plCard('Tournées par commune', 'Sites retenus en ' + monthLabel(m) + ', regroupés par district et commune.\nJournées-agent = visites ÷ visites par jour et par agent (' + (cfg.vpd ? fmt(cfg.vpd, 1) + ', saisi' : 'médiane observée ' + fmt(vObs.med, 1) + ' sur ' + fmt(vObs.n) + ' couples agent × jour') + ', réglable par activité).\nÉquipe : organisation de suivi qui a travaillé sur ces sites ces 6 derniers mois, sinon dans la commune, sinon dans le district.\n\n' + order, [
       tours.length ? table([{ k: 'district', t: 'District' }, { k: 'commune', t: 'Commune' }, { k: 'fo', t: 'Bureau', fmt: r => Array.from(r.fo).join(', ') }, { k: 'teams', t: 'Équipe', fmt: r => Array.from(r.teams).join(', ') },
         { k: 'n', t: 'Visites', num: 1 }, { k: 'high', t: 'Risque élevé', num: 1 }, { k: 'never', t: 'Jamais visités', num: 1 }, { k: 'ad', t: 'Journées-agent', num: 1, fmt: r => fmt(Math.ceil(r.ad)) }, { k: 'cap', t: 'Dus non retenus', num: 1, title: 'Sites dus de la commune non retenus faute de capacité' }], tours, { sortK: 5, dir: -1 }) : note('Aucune visite planifiée ce mois.', 'warn')], 'wide'));
@@ -428,6 +445,7 @@
     const cap = (l) => l.length > 300 ? l.slice(0, 300) : l;
     main.appendChild(plCard(fmt(pl.length) + ' sites retenus', 'Le détail du score (5 facteurs), de l’intervalle et de la raison du mois s’ouvre sur chaque ligne.', [table(cols(true), pl, { sortK: 6, dir: -1, onRow: s => plSiteDrawer(s.j, m) })], 'wide'));
     main.lastChild.querySelector('.tw').classList.add('compact');
+    main.appendChild(plH3('Sites non couverts', 'Sites dus mais non retenus en ' + monthLabel(m) + ' : capacité du bureau atteinte, ou grille d’activation à Non.'));
     const capCard = plCard(fmt(capL.length) + ' dus non retenus', 'Sites dus et actifs en ' + monthLabel(m) + ', non retenus parce que la capacité du bureau est atteinte.' + (capL.length > 300 ? ' Les 300 premiers sont affichés ; la liste complète est dans l’export Plan de suivi.' : ''), [capL.length ? table(cols(false), cap(capL), { sortK: 6, dir: -1, onRow: s => plSiteDrawer(s.j, m) }) : note('Aucun.', 'hint')], 'wide');
     main.appendChild(capCard); if (capL.length) capCard.querySelector('.tw').classList.add('compact');
     if (PLS.focus === 'cap') { PLS.focus = null; setTimeout(() => capCard.scrollIntoView({ block: 'start' }), 30); }
@@ -465,6 +483,8 @@
     const qs = inp({ type: 'search', placeholder: 'ID, code, localité, commune, district…', 'aria-label': 'Rechercher un site' }); qs.value = PLS.q; qs.addEventListener('change', () => { PLS.q = qs.value; PLS.page = 0; render(); });
     const ms = el('select', { 'aria-label': 'Mois affichés' }); [['horizon', 'Horizon du plan (' + monthLabel(R.months[0]) + ' → ' + monthLabel(R.months[R.months.length - 1]) + ')'], ['year', 'Année ' + planYearUI() + ' (mois passés = réalisé)']].forEach(([v, t]) => { const o = el('option', { value: v, text: t }); if (v === PLS.mode) o.selected = true; ms.appendChild(o); }); ms.addEventListener('change', () => { PLS.mode = ms.value; render(); });
     const legend = el('div', { class: 'pl-legend' }, Object.keys(PL_ST).filter(k => k !== 'none').map(k => el('span', { class: 'pl-lg' }, [el('span', { class: 'pl-c pl-c-' + k, text: PL_ST[k][0] || ' ' }), PL_ST[k][1] + ' : ' + fmt(cnt[k])])));
+    const legendBox = el('details', { class: 'pl-legdet' }, [el('summary', { text: 'Légende des symboles (' + Object.keys(PL_ST).filter(k => k !== 'none').length + ')' }), legend]);
+    const gnote = el('div', { class: 'pl-gnote' }, [el('span', { text: 'Mois passés : visites faites. Mois à venir : visites prévues.' }), infoBtn('Chaque case = un mois pour un site. Un clic ouvre le détail du site et la raison du mois. Mois courant : ' + monthLabel(X.CM) + '.')]);
     const PAGE = 100, pages = Math.max(1, Math.ceil(rows.length / PAGE)); if (PLS.page >= pages) PLS.page = 0;
     const p0 = PLS.page * PAGE, slice = rows.slice(p0, p0 + PAGE);
     const t = el('table', { class: 'pl-grid' });
@@ -490,8 +510,9 @@
     tb.addEventListener('mouseleave', hideTip);
     const pager = el('div', { class: 'frow' }, pages > 1 ? [btn('‹ Précédente', () => { PLS.page = Math.max(0, PLS.page - 1); render(); }), el('span', { class: 'hint', text: 'Lignes ' + fmt(p0 + 1) + '–' + fmt(Math.min(rows.length, p0 + PAGE)) + ' sur ' + fmt(rows.length) + ' (page ' + (PLS.page + 1) + ' / ' + pages + ')' }), btn('Suivante ›', () => { PLS.page = Math.min(pages - 1, PLS.page + 1); render(); })] : [el('span', { class: 'hint', text: fmt(rows.length) + ' ligne(s)' })]);
     main.appendChild(plCard('Plan de suivi par site', 'Mois passés : réalisé (visites exploitables). Mois à venir : planifié, ou plan validé (✔). Mois courant : ' + monthLabel(X.CM) + ' (jour local du ' + dFrUI(R.ref) + ').\nLes totaux portent sur toutes les lignes filtrées, pas seulement la page.\nUne case ouvre le détail du site et la raison du mois.', [
+      gnote,
       el('div', { class: 'frow' }, [el('label', { class: 'fld' }, ['Recherche', qs]), el('label', { class: 'fld' }, ['Mois affichés', ms]), btn('Plan de suivi (.xlsx)', () => plExportPlan(R, cfg, sc, all), 'on')]),
-      legend, el('div', { class: 'tw pl-sumw' }, sumT), pager, wrap, plValidationBar(R, cfg)], 'wide'));
+      legendBox, el('div', { class: 'tw pl-sumw' }, sumT), pager, wrap, plValidationBar(R, cfg)], 'wide'));
   }
   // validation mensuelle (administrateur) : un mois validé est figé dans le fichier et n'est plus recalculé
   function plValidationBar(R, cfg) {
@@ -683,6 +704,372 @@
   }
   function plExportRbmPlan() { const X = plRbmPlanTable(); downloadBlob(xlsxBlob([{ name: 'Plan_de_suivi', header: X.header, rows: X.rows }]), 'plan_de_suivi_rbm_' + today() + '.xlsx'); }
 
+  // ================================================================== MODÈLES EXCEL (télécharger → modifier → ré-importer)
+  // Deux classeurs PRÉ-CONFIGURÉS avec listes déroulantes (data-validation) : « Site Actif » (grille d'activation Oui/Non par mois,
+  // mise à jour incrémentale par identifiant) et « Plan de suivi » (registre complet, colonnes du plan). Les colonnes d'admin area
+  // sont pré-remplies depuis le registre et les P-codes du référentiel DBF (CUR.spec.adm1..adm4), avec listes déroulantes du référentiel.
+  const PL_MON = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
+  function plColL(i) { let s = ''; i++; while (i) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
+  // Écrit un classeur .xlsx (zip DEFLATE-stored + CRC, pur-JS, sans dépendance) AVEC listes déroulantes.
+  // sheets : [{ name, header:[...], rows:[[...]], dv:[{ sqref, values:[...] | f1:(réf. de plage sur la feuille Listes) }], hidden }]
+  // Les listes longues (régions, districts) passent par une feuille « Listes » cachée (une liste en ligne est limitée à 255 car.).
+  function plWriteXlsx(sheets) {
+    const enc = new TextEncoder();
+    const xe = s => String(s === null || s === undefined ? '' : s).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const cellXml = (v, ref, st) => { if (v === null || v === undefined || v === '' || (typeof v === 'number' && !isFinite(v))) return ''; if (typeof v === 'number') return '<c r="' + ref + '"' + (st ? ' s="1"' : '') + '><v>' + v + '</v></c>'; return '<c r="' + ref + '" t="inlineStr"' + (st ? ' s="1"' : '') + '><is><t xml:space="preserve">' + xe(v) + '</t></is></c>'; };
+    const sheetXml = sh => {
+      const nc = sh.header.length;
+      const widths = sh.header.map((h, j) => Math.min(55, Math.max(8, String(h).length + 2, ...sh.rows.slice(0, 200).map(r => r[j] === null || r[j] === undefined ? 0 : String(r[j]).length + 1))));
+      let x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>' + widths.map((w, j) => '<col min="' + (j + 1) + '" max="' + (j + 1) + '" width="' + w + '" customWidth="1"/>').join('') + '</cols><sheetData>';
+      x += '<row r="1">' + sh.header.map((v, j) => cellXml(v, plColL(j) + '1', true)).join('') + '</row>';
+      sh.rows.forEach((r, i) => { x += '<row r="' + (i + 2) + '">' + r.map((v, j) => cellXml(v, plColL(j) + (i + 2), false)).join('') + '</row>'; });
+      x += '</sheetData>';
+      if (nc) x += '<autoFilter ref="A1:' + plColL(nc - 1) + (sh.rows.length + 1) + '"/>';
+      if (sh.dv && sh.dv.length) {
+        x += '<dataValidations count="' + sh.dv.length + '">';
+        sh.dv.forEach(d => { const f1 = d.f1 ? xe(d.f1) : '&quot;' + d.values.map(v => String(v).replace(/[",]/g, ' ')).join(',') + '&quot;'; x += '<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" sqref="' + d.sqref + '"><formula1>' + f1 + '</formula1></dataValidation>'; });
+        x += '</dataValidations>';
+      }
+      return x + '</worksheet>';
+    };
+    const files = [
+      ['[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' + sheets.map((s, i) => '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('') + '</Types>'],
+      ['_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
+      ['xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' + sheets.map((s, i) => '<sheet name="' + xe(String(s.name).replace(/[\\/?*[\]:]/g, ' ').slice(0, 31)) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"' + (s.hidden ? ' state="hidden"' : '') + '/>').join('') + '</sheets></workbook>'],
+      ['xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + sheets.map((s, i) => '<Relationship Id="rId' + (i + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>').join('') + '<Relationship Id="rId' + (sheets.length + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'],
+      ['xl/styles.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0A6EBD"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>']
+    ];
+    sheets.forEach((s, i) => files.push(['xl/worksheets/sheet' + (i + 1) + '.xml', sheetXml(s)]));
+    const crcT = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; crcT[n] = c >>> 0; }
+    const crc = b => { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = crcT[(c ^ b[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+    const parts = [], central = []; let off = 0;
+    const u16 = v => [v & 0xFF, (v >> 8) & 0xFF], u32 = v => [v & 0xFF, (v >>> 8) & 0xFF, (v >>> 16) & 0xFF, (v >>> 24) & 0xFF];
+    files.forEach(([name, txt]) => {
+      const nb = enc.encode(name), db = enc.encode(txt), c = crc(db);
+      const lh = new Uint8Array([0x50, 0x4b, 0x03, 0x04, ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(c), ...u32(db.length), ...u32(db.length), ...u16(nb.length), ...u16(0)]);
+      parts.push(lh, nb, db);
+      central.push(new Uint8Array([0x50, 0x4b, 0x01, 0x02, ...u16(20), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(c), ...u32(db.length), ...u32(db.length), ...u16(nb.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(off)]), nb);
+      off += lh.length + nb.length + db.length;
+    });
+    const csz = central.reduce((s, b) => s + b.length, 0);
+    const end = new Uint8Array([0x50, 0x4b, 0x05, 0x06, ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length), ...u32(csz), ...u32(off), ...u16(0)]);
+    return new Blob(parts.concat(central, [end]), { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  }
+  // référentiel admin (noms + P-codes du DBF) : listes par niveau et inversion nom→P-code pour pré-remplir et relier à l'import
+  function plAdmLists() {
+    const sp = CUR.spec || {};
+    const names = {}, rev = {};
+    [1, 2, 3, 4].forEach(n => {
+      const o = sp['adm' + n] || {}; const set = new Map(), r = new Map();
+      Object.keys(o).forEach(pc => { const v = o[pc]; if (v === null || v === undefined || v === '' || pc === '999') return; const sv = String(v); if (!set.has(plNorm(sv))) set.set(plNorm(sv), sv); const k = plNorm(sv); if (k && !r.has(k)) r.set(k, pc); });
+      names[n] = Array.from(set.values()).sort((a, b) => a.localeCompare(b, 'fr')); rev[n] = r;
+    });
+    return { names, rev };
+  }
+  function plRevPcode(rev, n, name) { if (!name) return ''; const k = plNorm(name); return rev[n] && rev[n].has(k) ? rev[n].get(k) : ''; }
+  // sqref sur toutes les lignes de données (+ marge pour les lignes ajoutées à la main)
+  function plDvRef(col, nRows) { const L = plColL(col); return L + '2:' + L + (nRows + 1 + 200); }
+  // feuille « Listes » cachée : une colonne par liste (Oui/Non, régions, districts, communes), renvoie la référence de plage pour chaque
+  function plListesSheet(lists) {
+    const cols = Object.keys(lists).filter(k => lists[k] && lists[k].length);
+    const maxN = Math.max(0, ...cols.map(k => lists[k].length));
+    const header = cols; const rows = [];
+    for (let i = 0; i < maxN; i++) rows.push(cols.map(k => lists[k][i] !== undefined ? lists[k][i] : ''));
+    const Q = String.fromCharCode(36);   // le caractère dollar, construit hors littéral : l'injection des modules passe par String.replace, où un dollar suivi d'une apostrophe serait interprété comme un motif de remplacement
+    const ref = {}; cols.forEach((k, j) => { const L = plColL(j); ref[k] = lists[k].length ? 'Listes!' + Q + L + Q + '2:' + Q + L + Q + (lists[k].length + 1) : null; });
+    return { sheet: { name: 'Listes', header, rows, hidden: true }, ref };
+  }
+
+  // ---- Modèle « Site Actif » : une ligne par site, admin pré-rempli, Oui/Non/(vide) par mois, motif ; listes déroulantes.
+  function plSiteActifSheets() {
+    const rows0 = siteRows(); const AL = plAdmLists();
+    const data = rows0.map(s => {
+      const months = (s.months || '------------').padEnd(12, '-').split('').slice(0, 12).map(c => c === '1' ? 'Oui' : c === '0' ? 'Non' : '');
+      return [s.publicId, s.code, ACT[s.act] ? ACT[s.act].short : s.act, s.region, plRevPcode(AL.rev, 1, s.region), s.district, plRevPcode(AL.rev, 2, s.district), s.commune, plRevPcode(AL.rev, 3, s.commune), (s.fokontany && s.fokontany !== '0') ? s.fokontany : '', plRevPcode(AL.rev, 4, s.fokontany)].concat(months).concat([s.motif || '']);
+    });
+    const header = ['Identifiant', 'Code POI', 'Activité', 'Région', 'P-code région', 'District', 'P-code district', 'Commune', 'P-code commune', 'Fokontany', 'P-code fokontany'].concat(PL_MON).concat(['Motif du changement']);
+    const lists = { 'Oui/Non': ['Oui', 'Non'], 'Régions': AL.names[1], 'Districts': AL.names[2], 'Communes': AL.names[3], 'Fokontany': AL.names[4] };
+    const L = plListesSheet(lists); const n = data.length;
+    const dv = [];
+    for (let m = 0; m < 12; m++) dv.push({ sqref: plDvRef(11 + m, n), values: ['Oui', 'Non'] });   // colonnes mois (index 11..22)
+    if (L.ref['Régions']) dv.push({ sqref: plDvRef(3, n), f1: L.ref['Régions'] });
+    if (L.ref['Districts']) dv.push({ sqref: plDvRef(5, n), f1: L.ref['Districts'] });
+    if (L.ref['Communes']) dv.push({ sqref: plDvRef(7, n), f1: L.ref['Communes'] });
+    if (L.ref['Fokontany']) dv.push({ sqref: plDvRef(9, n), f1: L.ref['Fokontany'] });
+    const readme = { name: 'Lisez-moi', header: ['Rubrique', 'Mode d’emploi'], rows: [
+      ['But', 'Mettre à jour la grille d’activation (Oui / Non par mois) des sites existants : Oui = site actif ce mois, Non = inactif, case VIDE = mois laissé inchangé.'],
+      ['Identifiant', 'Ne modifiez jamais la colonne « Identifiant » : c’est la clé de rapprochement (S-XXXX-XXXX). Une ligne dont l’identifiant est inconnu est ignorée — aucun site n’est créé par l’import.'],
+      ['Oui / Non / vide', 'Chaque cellule de mois propose une liste déroulante Oui / Non. Laissez vide pour ne pas toucher au mois.'],
+      ['Admin area', 'Région / District / Commune proposent une liste déroulante du référentiel (importé depuis le .dbf). Ces colonnes sont pour information : l’import ne change que la grille mensuelle et le motif.'],
+      ['Motif', 'Renseignez « Motif du changement » : il est journalisé avec la date et l’auteur.'],
+      ['Ré-import', 'Onglet « Données » → Importer → le classeur est reconnu automatiquement (ou choisissez « Modèle Site Actif »). Une vérification chiffrée Avant → Après s’affiche ; rien n’est écrit avant « Appliquer ».'] ] };
+    return [{ name: 'Site Actif', header, rows: data, dv }, readme, L.sheet];
+  }
+  function plSiteActifTemplate() { downloadBlob(plWriteXlsx(plSiteActifSheets()), 'modele_site_actif_' + today() + '.xlsx'); }
+
+  // ---- Modèle « Plan de suivi » : registre complet, colonnes du plan (ré-import via le chemin PLAN existant) + listes déroulantes.
+  function plPlanSheets() {
+    const rows0 = siteRows(); const AL = plAdmLists();
+    const data = rows0.map(s => {
+      const months = (s.months || '------------').padEnd(12, '-').split('').slice(0, 12).map(c => c === '1' ? 'Oui' : c === '0' ? 'Non' : '');
+      return [s.publicId, s.code, s.tagCode, ACT[s.act] ? ACT[s.act].short : s.act, s.actif ? 'Oui' : 'Non', s.region, s.district, s.commune, s.localite, (s.fokontany && s.fokontany !== '0') ? s.fokontany : '', s.fo, s.lat, s.lon, s.annee].concat(months).concat([s.motif || '']);
+    });
+    const header = ['ID_MEMS', 'Code POI', 'Tag code', 'Activité', 'Actif', 'Region', 'District', 'Commune', 'Localité', 'Fokontany', 'Field office', 'Latitude', 'Longitude', 'Année'].concat(PL_MON).concat(['Motif du changement']);
+    const lists = { 'Oui/Non': ['Oui', 'Non'], 'Régions': AL.names[1], 'Districts': AL.names[2], 'Communes': AL.names[3] };
+    const L = plListesSheet(lists); const n = data.length;
+    const dv = [{ sqref: plDvRef(4, n), values: ['Oui', 'Non'] }];   // Actif
+    for (let m = 0; m < 12; m++) dv.push({ sqref: plDvRef(14 + m, n), values: ['Oui', 'Non'] });   // mois (index 14..25)
+    if (L.ref['Régions']) dv.push({ sqref: plDvRef(5, n), f1: L.ref['Régions'] });
+    if (L.ref['Districts']) dv.push({ sqref: plDvRef(6, n), f1: L.ref['Districts'] });
+    if (L.ref['Communes']) dv.push({ sqref: plDvRef(7, n), f1: L.ref['Communes'] });
+    const readme = { name: 'Lisez-moi', header: ['Rubrique', 'Mode d’emploi'], rows: [
+      ['But', 'Mettre à jour le registre complet des sites (le plan de suivi) : un site par ligne, toutes activités.'],
+      ['Clés', '« Code POI » + « Tag code » identifient le site (ne les modifiez pas). « ID_MEMS » (S-XXXX-XXXX) est conservé pour l’aller-retour.'],
+      ['Ajouter un site', 'Ajoutez une ligne : renseignez Code POI, Tag code (SMP, GD, MIARO, PECMAM, RES), Activité, l’admin area (listes déroulantes) et la grille de mois.'],
+      ['Retirer', 'Un site présent dans le registre mais ABSENT du fichier sera retiré (son identifiant et sa sécurité sont conservés s’il revient). La vérification signale le nombre de sites retirés.'],
+      ['Oui / Non / vide', 'Actif et les mois proposent une liste déroulante Oui / Non ; une case de mois vide laisse le mois inchangé pour un site existant.'],
+      ['Ré-import', 'Onglet « Données » → Importer → reconnu comme « Plan de suivi ». Vérification chiffrée Avant → Après, puis « Appliquer ».'] ] };
+    // nom de feuille volontairement distinct de « Plan_de_suivi » (réservé au classeur RBM) : l'import est reconnu par les colonnes (Code POI + Tag code)
+    return [{ name: 'Registre des sites', header, rows: data, dv }, readme, L.sheet];
+  }
+  function plPlanTemplate() { downloadBlob(plWriteXlsx(plPlanSheets()), 'modele_plan_de_suivi_' + today() + '.xlsx'); }
+
+  // ---- lecteur CSV minimal (séparateur , ou ; compté hors guillemets ; champs entre guillemets) pour le ré-import des modèles.
+  function plParseCsvGrid(text) {
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+    const nl = text.indexOf('\n'); const first = text.slice(0, nl < 0 ? text.length : nl);
+    const cnt = c => { let k = 0, q = false; for (let p = 0; p < first.length; p++) { const ch = first[p]; if (ch === '"') q = !q; else if (!q && ch === c) k++; } return k; };
+    const sep = cnt(';') > cnt(',') ? ';' : ','; const rows = []; let row = [], f = '', q = false;
+    for (let i = 0; i < text.length; i++) { const c = text[i];
+      if (q) { if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+      else if (c === '"') q = true;
+      else if (c === sep) { row.push(f); f = ''; }
+      else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; if (f !== '' || row.length) { row.push(f); rows.push(row); row = []; f = ''; } }
+      else f += c; }
+    if (f !== '' || row.length) { row.push(f); rows.push(row); }
+    const header = (rows.shift() || []).map(h => String(h).replace(/^﻿/, '').trim());
+    return { header, rows };
+  }
+  function plGridMonthIdx(h) { const k = plNorm(h).replace(/\s+/g, '');
+    const RE = [[/^jan/, 0], [/^fev|^feb/, 1], [/^mar/, 2], [/^avr|^apr/, 3], [/^mai|^may/, 4], [/^jui?n|^jun/, 5], [/^juil|^jul/, 6], [/^aou|^aug/, 7], [/^sep/, 8], [/^oct/, 9], [/^nov/, 10], [/^dec/, 11]];
+    for (const [re, m] of RE) if (re.test(k)) return m; return -1; }
+  // saisie tolérante d'un identifiant S-XXXX-XXXX (casse, tirets, O→0, I/L→1) — même esprit que common/publicId
+  function plNormId(s) { return String(s === null || s === undefined ? '' : s).toUpperCase().replace(/[\s-]+/g, '').replace(/O/g, '0').replace(/[IL]/g, '1'); }
+  const PL_YES = /^(oui|yes|1|true|vrai|x|actif|active)$/i, PL_NO = /^(non|no|0|false|faux|inactif|inactive)$/i;
+  // reconnaissance d'un modèle « Site Actif » par son en-tête (csv sans nom de feuille) : Identifiant + ≥ 3 mois, sans « Tag code »
+  function plLooksSiteActif(headLine) {
+    const cells = String(headLine || '').split(/[,;\t]/).map(h => plNorm(h.replace(/^"|"$/g, '')));
+    const hasId = cells.some(k => k === 'identifiant' || k === 'id mems' || k === 'id site' || k === 'idmems');
+    const nMon = cells.filter(h => plGridMonthIdx(h) >= 0).length;
+    const hasTag = cells.some(k => k === 'tag code' || k === 'tagcode');
+    return hasId && nMon >= 3 && !hasTag;
+  }
+
+  // ---- ré-import « Site Actif » : met à jour UNIQUEMENT la grille mensuelle (Oui/Non par mois) + le motif des sites EXISTANTS.
+  // Rapprochement par Identifiant (publicId, tolérant) puis Code POI (+activité) ; case vide = mois inchangé ; site inconnu jamais créé.
+  function plSiteActifPrepare(text, name) {
+    const G = plParseCsvGrid(text); if (!G.header.length) throw new Error('fichier vide.');
+    const hi = {}; G.header.forEach((h, j) => { const k = plNorm(h); if (!(k in hi)) hi[k] = j; });
+    const colOf = (...keys) => { for (const kk of keys) { const k = plNorm(kk); if (k in hi) return hi[k]; } return -1; };
+    const cId = colOf('identifiant', 'id mems', 'id site', 'idmems'), cCode = colOf('code poi', 'codepoi', 'poicode', 'code'), cAct = colOf('activite', 'activité', 'tag code', 'tagcode'), cMotif = colOf('motif du changement', 'motif');
+    const monthCol = new Array(12).fill(-1); G.header.forEach((h, j) => { const m = plGridMonthIdx(h); if (m >= 0 && monthCol[m] < 0) monthCol[m] = j; });
+    const nMon = monthCol.filter(j => j >= 0).length;
+    if (cId < 0 && cCode < 0) throw new Error('ni colonne « Identifiant » ni « Code POI » : ce n’est pas un modèle Site Actif.');
+    if (!nMon) throw new Error('aucune colonne de mois (Jan…Déc) reconnue : ce n’est pas un modèle Site Actif.');
+    const PF = D.planFull, pc = k => PF.cols.indexOf(k), ciM = pc('months'), ciA = pc('act'), ciPub = pc('publicId');
+    const byId = new Map(), byCode = new Map();
+    PF.rows.forEach((r, j) => { const pub = r[ciPub]; if (pub) byId.set(plNormId(pub), j); byCode.set(plNorm(r[ciA]) + '|' + String(r[0]).replace(/\.0$/, ''), j); });
+    const shortToAct = {}; ACTS.forEach(a => { shortToAct[plNorm(ACT[a] ? ACT[a].short : a)] = a; shortToAct[plNorm(a)] = a; });
+    const changes = []; let matched = 0, unknown = 0, monthsChanged = 0, unchanged = 0, oldOui = 0, newOui = 0, oldCM = 0, newCM = 0; const unknownIds = [];
+    const seen = new Set();
+    G.rows.forEach(rw => {
+      const idv = cId >= 0 ? rw[cId] : null; let j = idv ? byId.get(plNormId(idv)) : undefined;
+      if (j === undefined && cCode >= 0) { const code = String(rw[cCode] || '').replace(/\.0$/, '').trim(); const a = cAct >= 0 ? shortToAct[plNorm(rw[cAct])] : null; if (code && a) j = byCode.get(plNorm(a) + '|' + code); }
+      if (j === undefined) { if ((idv && String(idv).trim()) || (cCode >= 0 && String(rw[cCode] || '').trim())) { unknown++; if (unknownIds.length < 20) unknownIds.push(String(idv || rw[cCode] || '').trim()); } return; }
+      if (seen.has(j)) return; seen.add(j); matched++;
+      const old = String(D.planFull.rows[j][ciM] || '------------').padEnd(12, '-').slice(0, 12).split('');
+      const nm = old.slice();
+      for (let m = 0; m < 12; m++) { if (monthCol[m] < 0) continue; const v = String(rw[monthCol[m]] || '').trim(); if (!v) continue; nm[m] = PL_YES.test(v) ? '1' : PL_NO.test(v) ? '0' : nm[m]; }
+      const nmS = nm.join('');
+      // métriques d'activation (ce que la grille mensuelle change réellement) : cellules « Oui » et sites actifs au mois courant
+      const cmi = +currentMonth().slice(5) - 1;
+      oldOui += (old.join('').match(/1/g) || []).length; newOui += (nmS.match(/1/g) || []).length;
+      if (old[cmi] === '1') oldCM++; if (nm[cmi] === '1') newCM++;
+      if (nmS !== old.join('')) { const motif = cMotif >= 0 ? String(rw[cMotif] || '').trim() : ''; changes.push({ j, field: 'months', value: nmS, motif: motif || 'Import modèle Site Actif (' + name + ')' }); monthsChanged++; } else unchanged++;
+    });
+    return { changes, matched, unknown, monthsChanged, unchanged, unknownIds, nMon, totalRows: G.rows.length, name,
+      oldOui, newOui, oldCM, newCM, cmLabel: monthLabel(currentMonth()) };
+  }
+
+  // ---- métriques globales (hors filtre) d'un état P : alimente l'aperçu AVANT → APRÈS, exactement ce que « Appliquer » écrira.
+  function plActMetrics(P, act) {
+    const dq = (P.dq || []).find(x => x.act === act) || {};
+    const PF = P.planFull, pc = k => PF.cols.indexOf(k);
+    const sites = PF.rows.filter(r => r[pc('act')] === act).length, active = PF.rows.filter(r => r[pc('act')] === act && r[pc('actif')] === 1).length;
+    const cv = (P.coverage || []).find(x => x[0] === act && x[1] === 'TOTAL');
+    return { fiches: dq.subs == null ? null : dq.subs, vv: dq.validVisits == null ? null : dq.validVisits, sites, active, planned: cv ? cv[2] : 0, visited: cv ? cv[3] : 0 };
+  }
+  function plRegMetrics(P) {
+    const PF = P.planFull, pc = k => PF.cols.indexOf(k); const byAct = {}; let gps = 0, active = 0;
+    PF.rows.forEach(r => { const a = r[pc('act')]; byAct[a] = (byAct[a] || 0) + 1; if (r[pc('lat')] !== null && r[pc('lon')] !== null) gps++; if (r[pc('actif')] === 1) active++; });
+    return { total: PF.rows.length, byAct, gps, active };
+  }
+  function plAllCov(P) { const o = {}; (P.coverage || []).filter(x => x[1] === 'TOTAL').forEach(x => { o[x[0]] = { planned: x[2], visited: x[3] }; }); return o; }
+  // couverture lisible AVEC garde-fous : dénominateur 0 ou incohérent (visités > planifiés) → « n.d. » ; dénominateur faible signalé.
+  function plCovText(c) {
+    if (!c) return { txt: 'n.d.', pct: null };
+    const p = c.planned || 0, v = c.visited || 0;
+    if (p <= 0) return { txt: 'n.d. (aucun site)', pct: null };
+    if (v > p) return { txt: 'n.d. (incohérent)', pct: null, bad: true };
+    const pct = v / p * 100; const low = p < 5;
+    return { txt: fmt(pct, 0) + ' % (' + fmt(v) + '/' + fmt(p) + ')' + (low ? ' — dénom. faible' : ''), pct, low };
+  }
+
+  // Dry-run : calcule l'état APRÈS (sans rien écrire) pour afficher l'aperçu chiffré exact. Déterministe = identique à « Appliquer ».
+  function plComputeBeforeAfter(I) {
+    try {
+      const meta = { date: today(), by: SESSION.by || '—', file: I.name };
+      if (I.act === 'SITEACT') { I.sa = plSiteActifPrepare(I.text, I.name); I.baKind = 'siteact'; return; }
+      if (I.act === 'DBF') { const r = ENGINE.importAdmin(CUR, I.parsed, meta); const P2 = ENGINE.refreshPlanTables(r.P); I.baKind = 'reg'; I.before = plRegMetrics(CUR); I.after = plRegMetrics(P2); I.beforeCov = plAllCov(CUR); I.afterCov = plAllCov(P2); I.siteReResolved = r.report.siteReResolved; return; }
+      if (I.act === 'RBMPLAN') { const r = ENGINE.importRbmPlan(CUR, I.text, I.xmeta && I.xmeta.rbm, meta); const P2 = ENGINE.refreshPlanTables(r.P); I.baKind = 'reg'; I.before = plRegMetrics(CUR); I.after = plRegMetrics(P2); I.beforeCov = plAllCov(CUR); I.afterCov = plAllCov(P2); return; }
+      if (I.act === 'PLAN') { const P2 = ENGINE.refreshPlanTables(ENGINE.importPlan(CUR, I.text)); I.baKind = 'reg'; I.before = plRegMetrics(CUR); I.after = plRegMetrics(P2); I.beforeCov = plAllCov(CUR); I.afterCov = plAllCov(P2); return; }
+      const r = ENGINE.importActivity(CUR, I.act, I.text, meta); I.baKind = 'act'; I.before = plActMetrics(CUR, I.act); I.after = plActMetrics(r.P, I.act);
+    } catch (e) { I.baErr = String((e && e.message) || e); }
+  }
+  // cellule delta colorée : une baisse de volume (fiches/visites/sites) est signalée (ambre/rouge), une hausse en vert, 0 en neutre.
+  function plDeltaCell(before, after) {
+    if (before == null || after == null) return el('td', { class: 'num', text: '—' });
+    const d = after - before; const cls = d < 0 ? 'bad' : d > 0 ? 'good' : '';
+    return el('td', { class: 'num pl-ba-d ' + cls, text: (d > 0 ? '+' : '') + fmt(d) });
+  }
+  function plBaRow(label, before, after, fmtV) { const f = fmtV || (x => x == null ? '—' : fmt(x));
+    return el('tr', null, [el('td', { text: label }), el('td', { class: 'num', text: f(before) }), el('td', { class: 'num', text: f(after) }), plDeltaCell(typeof before === 'number' ? before : null, typeof after === 'number' ? after : null)]); }
+  function plBaTable(rows) { const t = el('table', { class: 'pl-ba' });
+    t.appendChild(el('thead', null, el('tr', null, ['Indicateur', 'Actuel', 'Après import', 'Δ'].map((h, i) => el('th', { scope: 'col', class: i ? 'num' : '', text: h })))));
+    t.appendChild(el('tbody', null, rows)); return el('div', { class: 'tw pl-baw' }, t); }
+  // aperçu AVANT → APRÈS (+ avertissement si l'import RÉDUIT les données : « remplace tout »).
+  function plBeforeAfterView(I) {
+    const box = el('div', { class: 'pl-ba-sec' }); const warns = [];
+    if (I.baErr) { box.appendChild(el('p', { class: 'hint', text: 'Aperçu chiffré indisponible : ' + I.baErr })); return { box, warns }; }
+    if (I.baKind === 'act') {
+      const b = I.before, a = I.after, S = ACT[I.act];
+      box.appendChild(plBaTable([
+        plBaRow('Fiches (soumissions)', b.fiches, a.fiches),
+        plBaRow('Visites exploitables', b.vv, a.vv),
+        plBaRow('Sites du registre (' + S.short + ')', b.sites, a.sites),
+        el('tr', null, [el('td', { text: 'Couverture du plan (' + S.short + ')' }), el('td', { class: 'num', text: plCovText(b).txt }), el('td', { class: 'num', text: plCovText(a).txt }), el('td', { class: 'num', text: '' })]) ]));
+      if (b.fiches != null && a.fiches != null && a.fiches < b.fiches) warns.push(['−' + fmt(b.fiches - a.fiches) + ' fiches : l’extraction remplace TOUT', 'Une extraction remplace entièrement les données de l’activité ' + S.short + ' (elle ne s’ajoute pas). Cette extraction a moins de fiches que l’actuel : vérifiez que ce n’est pas un fichier partiel, d’un seul mois, ou d’une mauvaise activité. En cas de doute, n’appliquez pas.']);
+      if (b.vv != null && a.vv != null && b.vv && a.vv < b.vv * 0.7) warns.push([fmt(Math.round((1 - a.vv / b.vv) * 100)) + ' % de visites exploitables en moins', 'La chute est importante : extraction incomplète probable, ou colonnes de site / date mal reconnues (voir le détail des colonnes).']);
+      [plCovText(b), plCovText(a)].forEach((c, i) => { if (c.bad) warns.push(['Couverture incohérente ' + (i ? '(après)' : '(avant)'), 'Visités > planifiés : valeur non écrite, affichée « n.d. ». À signaler.']); });
+    } else if (I.baKind === 'reg') {
+      const b = I.before, a = I.after;
+      box.appendChild(plBaTable([
+        plBaRow('Sites du registre (total)', b.total, a.total),
+        plBaRow('Sites actifs', b.active, a.active),
+        plBaRow('Sites géolocalisés', b.gps, a.gps) ].concat(ACTS.filter(x => (b.byAct[x] || 0) || (a.byAct[x] || 0)).map(x => plBaRow('— dont ' + (ACT[x] ? ACT[x].short : x), b.byAct[x] || 0, a.byAct[x] || 0)))));
+      if (a.total < b.total) warns.push(['−' + fmt(b.total - a.total) + ' sites retirés du registre', 'Des sites du registre actuel sont absents du fichier : ils seront retirés (leur identifiant S-XXXX-XXXX et leur sécurité sont conservés s’ils reviennent). Vérifiez que le fichier contient bien tous les sites voulus.']);
+      if (I.beforeCov && I.afterCov) { const cov = ACTS.filter(x => (I.beforeCov[x] && I.beforeCov[x].planned) || (I.afterCov[x] && I.afterCov[x].planned));
+        if (cov.length) { box.appendChild(el('p', { class: 'hint', text: 'Couverture du plan (par activité) :' }));
+          box.appendChild(plBaTable(cov.map(x => el('tr', null, [el('td', { text: ACT[x] ? ACT[x].short : x }), el('td', { class: 'num', text: plCovText(I.beforeCov[x]).txt }), el('td', { class: 'num', text: plCovText(I.afterCov[x]).txt }), el('td', { text: '' })])))); } }
+      if (I.siteReResolved) box.appendChild(el('p', { class: 'hint', text: fmt(I.siteReResolved) + ' site(s) réalignés sur le référentiel par P-code (géographie complétée, aucun site supprimé).' }));
+    } else if (I.baKind === 'siteact') {
+      const sa = I.sa;
+      box.appendChild(plBaTable([
+        el('tr', null, [el('td', { text: 'Lignes du fichier' }), el('td', { class: 'num', text: fmt(sa.totalRows) }), el('td', { text: '' }), el('td', { text: '' })]),
+        el('tr', null, [el('td', { text: 'Sites rapprochés (identifiant / code)' }), el('td', { text: '' }), el('td', { class: 'num', text: fmt(sa.matched) }), el('td', { text: '' })]),
+        el('tr', null, [el('td', { text: 'Grilles mensuelles modifiées' }), el('td', { text: '' }), el('td', { class: 'num', text: fmt(sa.monthsChanged) }), el('td', { text: '' })]),
+        plBaRow('Cellules « Oui » (mois actifs)', sa.oldOui, sa.newOui),
+        plBaRow('Sites actifs au mois courant (' + sa.cmLabel + ')', sa.oldCM, sa.newCM),
+        el('tr', null, [el('td', { text: 'Sites inconnus (ignorés, jamais créés)' }), el('td', { text: '' }), el('td', { class: 'num', text: fmt(sa.unknown) }), el('td', { text: '' })]) ]));
+      box.appendChild(el('p', { class: 'hint', text: 'La grille mensuelle Oui/Non pilote l’éligibilité d’un site chaque mois (planification, couverture mensuelle). Le statut global « Actif » et la couverture annuelle ne sont pas touchés par ce modèle.' }));
+      if (sa.unknown) warns.push([fmt(sa.unknown) + ' site(s) inconnu(s) ignorés', 'Identifiant / code absent du registre : ' + sa.unknownIds.slice(0, 8).join(', ') + (sa.unknownIds.length > 8 ? '…' : '') + '. Un modèle Site Actif ne crée jamais de site — ajoutez-le d’abord via le plan de suivi.']);
+      if (!sa.matched) warns.push(['Aucun site rapproché', 'Aucune ligne n’a pu être reliée à un site du registre (vérifiez la colonne « Identifiant »).']);
+    }
+    return { box, warns };
+  }
+  function plBeforeAfterSection(I) { const r = plBeforeAfterView(I); const sec = el('div', { class: 'pl-imp-ba' }, [el('h3', { class: 'pl-h3', text: 'Avant → Après (chiffré)' }), infoBtn('Chiffres GLOBAUX recalculés exactement comme « Appliquer » les écrira (hors filtre d’activité/zone actif à l’écran). Rien n’est modifié tant que vous n’avez pas cliqué « Appliquer ». Une couverture n’est jamais écrite au-delà de 100 % ni sur un dénominateur nul (« n.d. »).'), r.box]);
+    return { sec, warns: r.warns }; }
+
+  // ------------------------------------------------------------------ Ajouter un site (cascade Région→District→Commune, référentiel DBF, jamais texte libre)
+  function plOptSelect(label, options, onChange, allowOther) {
+    const sel = el('select', { 'aria-label': label }); sel.appendChild(el('option', { value: '', text: '— ' + label + ' —' }));
+    options.forEach(o => sel.appendChild(el('option', { value: o, text: o })));
+    if (allowOther) sel.appendChild(el('option', { value: '\u0001autre', text: '＋ Autre (saisir)…' }));
+    sel.addEventListener('change', () => onChange(sel.value)); return sel;
+  }
+  // options de cascade : référentiel DBF (spec.adm*) complété par les valeurs déjà présentes dans le registre (jamais de texte libre imposé)
+  function plCascadeData() {
+    const AL = plAdmLists(); const PF = D.planFull, pc = k => PF.cols.indexOf(k);
+    const reg1 = new Set(AL.names[1]), tree = new Map();
+    PF.rows.forEach(r => { const rg = r[pc('region')], di = r[pc('district')], co = r[pc('commune')]; if (rg) reg1.add(ENGINE.canonRegion(rg) || rg); if (!rg) return;
+      const kr = plNorm(ENGINE.canonRegion(rg) || rg); if (!tree.has(kr)) tree.set(kr, { label: ENGINE.canonRegion(rg) || rg, d: new Map() }); const T = tree.get(kr);
+      if (di) { const kd = plNorm(di); if (!T.d.has(kd)) T.d.set(kd, { label: di, c: new Set() }); if (co) T.d.get(kd).c.add(co); } });
+    return { regions: Array.from(reg1).sort((a, b) => a.localeCompare(b, 'fr')), tree, AL };
+  }
+  function plAddSiteModal() {
+    const C = plCascadeData(); const st = { region: '', district: '', commune: '', fokontany: '', other: {} };
+    const ov = el('div', { class: 'modal-ov', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Ajouter un site' });
+    const code = inp({ type: 'text', maxlength: 40, placeholder: 'Code POI (ex. 605040003)', 'aria-label': 'Code POI' });
+    const localite = inp({ type: 'text', maxlength: 120, placeholder: 'Nom du site / école', 'aria-label': 'Localité' });
+    const asel = el('select', { 'aria-label': 'Activité' }); ACTS.forEach(a => asel.appendChild(el('option', { value: a, text: ACT[a].short + ' — ' + ACT[a].label })));
+    const fo = inp({ type: 'text', maxlength: 60, placeholder: 'Bureau', 'aria-label': 'Bureau' });
+    const msg = el('p', { class: 'modal-err' }); const cascade = el('div', { class: 'pl-cascade' });
+    const close = () => { ov.remove(); document.removeEventListener('keydown', esc); }, esc = e => { if (e.key === 'Escape') close(); };
+    const txtIn = (ph, key, after) => { const t = inp({ type: 'text', maxlength: 120, placeholder: ph, 'aria-label': ph }); t.addEventListener('input', () => { st.other[key] = t.value.trim(); if (after) after(); }); return t; };
+    const buildCascade = () => { clear(cascade);
+      const rSel = plOptSelect('Région', C.regions, v => { st.region = v === '\u0001autre' ? '' : v; st.district = ''; st.commune = ''; if (v === '\u0001autre') st.other.region = ''; else delete st.other.region; buildCascade(); }, true);
+      if (st.region || st.other.region !== undefined) rSel.value = st.other.region !== undefined ? '\u0001autre' : st.region;
+      cascade.appendChild(el('label', { class: 'fld' }, ['Région', rSel])); if (st.other.region !== undefined) cascade.appendChild(el('label', { class: 'fld' }, ['Nom de la région', txtIn('Nouvelle région', 'region')]));
+      const T = C.tree.get(plNorm(st.region));
+      const dOpts = T ? Array.from(T.d.values()).map(x => x.label).sort((a, b) => a.localeCompare(b, 'fr')) : C.AL.names[2];
+      const dSel = plOptSelect('District', dOpts, v => { st.district = v === '\u0001autre' ? '' : v; st.commune = ''; if (v === '\u0001autre') st.other.district = ''; else delete st.other.district; buildCascade(); }, true);
+      if (st.district || st.other.district !== undefined) dSel.value = st.other.district !== undefined ? '\u0001autre' : st.district;
+      cascade.appendChild(el('label', { class: 'fld' }, ['District', dSel])); if (st.other.district !== undefined) cascade.appendChild(el('label', { class: 'fld' }, ['Nom du district', txtIn('Nouveau district', 'district')]));
+      const D2 = T && T.d.get(plNorm(st.district));
+      const cOpts = D2 ? Array.from(D2.c).sort((a, b) => a.localeCompare(b, 'fr')) : C.AL.names[3];
+      const cSel = plOptSelect('Commune', cOpts, v => { st.commune = v === '\u0001autre' ? '' : v; if (v === '\u0001autre') st.other.commune = ''; else delete st.other.commune; buildCascade(); }, true);
+      if (st.commune || st.other.commune !== undefined) cSel.value = st.other.commune !== undefined ? '\u0001autre' : st.commune;
+      cascade.appendChild(el('label', { class: 'fld' }, ['Commune', cSel])); if (st.other.commune !== undefined) cascade.appendChild(el('label', { class: 'fld' }, ['Nom de la commune', txtIn('Nouvelle commune', 'commune')]));
+      cascade.appendChild(el('label', { class: 'fld' }, ['Fokontany (facultatif)', txtIn('Fokontany', 'fokontany')]));
+    };
+    buildCascade();
+    const ok = () => {
+      const cd = code.value.replace(/\.0$/, '').trim(); const act = asel.value;
+      const region = st.other.region !== undefined ? (st.other.region || '').trim() : st.region;
+      const district = st.other.district !== undefined ? (st.other.district || '').trim() : st.district;
+      const commune = st.other.commune !== undefined ? (st.other.commune || '').trim() : st.commune;
+      if (!cd) { msg.textContent = 'Code POI obligatoire.'; code.focus(); return; }
+      if (!region || !district) { msg.textContent = 'Région et district obligatoires (listes ou « Autre »).'; return; }
+      const PF = D.planFull, pc = k => PF.cols.indexOf(k);
+      if (PF.rows.some(r => String(r[0]).replace(/\.0$/, '') === cd && r[pc('act')] === act)) { msg.textContent = 'Un site ' + (ACT[act] ? ACT[act].short : act) + ' avec ce Code POI existe déjà.'; return; }
+      plAddSite({ code: cd, act, region, district, commune, fokontany: (st.other.fokontany || '').trim(), localite: localite.value.trim(), fo: fo.value.trim() });
+      close();
+    };
+    ov.appendChild(el('div', { class: 'modal pl-addmodal' }, [el('h2', { text: 'Ajouter un site au registre' }),
+      el('p', { class: 'hint', text: 'L’admin area se choisit par listes en cascade (référentiel du .dbf, complété par les zones déjà connues). Un identifiant S-XXXX-XXXX est attribué automatiquement.' }),
+      el('div', { class: 'frow' }, [el('label', { class: 'fld' }, ['Code POI', code]), el('label', { class: 'fld' }, ['Activité', asel]), el('label', { class: 'fld' }, ['Bureau', fo])]),
+      el('label', { class: 'fld' }, ['Localité / école', localite]), cascade, msg,
+      el('div', { class: 'mrow' }, [btn('Ajouter le site', ok, 'on'), btn('Annuler', close)]),
+      el('p', { class: 'hint', text: 'Le site est actif par défaut (12 mois à Oui) ; ajustez ensuite sa grille dans le registre ou via le modèle Site Actif.' })]));
+    ov.addEventListener('click', e => { if (e.target === ov) close(); }); document.addEventListener('keydown', esc); document.body.appendChild(ov); code.focus();
+  }
+  function plAddSite(o) {
+    const PF = D.planFull, pc = k => PF.cols.indexOf(k);
+    const AL = plAdmLists(); const region = ENGINE.canonRegion(o.region) || o.region;
+    const taken = new Set(PF.rows.map(r => r[pc('publicId')])); Object.values(PF.retired || {}).forEach(v => taken.add(v[0]));
+    const row = PF.cols.map(() => null);
+    const set = (k, v) => { const j = pc(k); if (j >= 0) row[j] = v; };
+    row[0] = o.code; set('act', o.act); set('region', region); set('district', o.district); set('commune', o.commune); set('localite', o.localite || o.commune); set('fo', o.fo || null);
+    set('actif', 1); set('months', '111111111111'); set('tag', ACT[o.act] ? ACT[o.act].label : o.act); set('tagCode', (CUR.spec && CUR.spec.planTag && CUR.spec.planTag[o.act]) || o.act); set('tagGroup', ACT[o.act] ? ACT[o.act].label : o.act);
+    set('fokontany', o.fokontany || null); set('annee', +planYearUI() || new Date().getUTCFullYear()); set('publicId', newPublicId(taken)); set('security', 0);
+    PF.rows.push(row); const j = PF.rows.length - 1;
+    const log = CUR.planLog = CUR.planLog || []; log.push({ d: today(), by: SESSION.by || '—', code: o.code, act: o.act, f: 'ajout', a: '', b: region + ' › ' + o.district + (o.commune ? ' › ' + o.commune : ''), m: 'Ajout manuel d’un site' });
+    CUR.planVersion = (CUR.planVersion || 0) + 1; CUR.planEdited = { date: today(), by: SESSION.by || '—' };
+    SESSION.dirty = true; SESSION.planPending = 1; PLS.cache = null;
+    clearTimeout(PLS.timer); PLS.timer = setTimeout(plRefreshNow, 150);
+    SESSION.plAdded = 'Site ' + (ACT[o.act] ? ACT[o.act].short : o.act) + ' ajouté : ' + row[pc('publicId')] + ' (' + region + ' › ' + o.district + ')'; render();
+  }
+
   // ------------------------------------------------------------------ TIROIR D'UN SITE : les 5 facteurs, la fréquence, l'échéance, la raison de chaque mois
   function plFactorTable(s) {
     const t = el('table', { class: 'xt pl-xt' });
@@ -766,14 +1153,23 @@
     const q = plNorm(SITE_UI.q);
     const rows = all.filter(s => (SITE_UI.status === 'all' || (SITE_UI.status === 'on' && s.actif) || (SITE_UI.status === 'off' && !s.actif) || (SITE_UI.status === 'never' && s.actif && !s.nVis) || (SITE_UI.status === 'late' && s.actif && s.late) || (SITE_UI.status === 'secnr' && !s.secKnown)) &&
       (!q || plNorm(s.publicId + ' ' + s.code + ' ' + s.localite + ' ' + s.commune + ' ' + s.district + ' ' + s.fokontany).indexOf(q) >= 0));
-    main.appendChild(el('div', { class: 'kpis' }, [
+    const smi = +CM.slice(5) - 1;
+    const activeMonth = plannable.filter(s => monthActive(s, CM)).length;
+    const blank = plannable.filter(s => s.months && s.months[smi] !== '1' && s.months[smi] !== '0').length;
+    const kVisited = kpi(fmt(visited.length), 'Déjà visités', 'sur ' + fmt(plannable.length) + ' sites actifs', null, 'Au moins une visite exploitable sur toute la période des données (du ' + dFrUI(D.period[0]) + ' au ' + dFrUI(D.period[1]) + ') : ' + pct(plannable.length ? visited.length / plannable.length * 100 : null) + ' des sites actifs.');
+    const kLate = kpi(fmt(late.length), 'En retard', 'sur ' + fmt(visited.length) + ' sites visités', late.length ? 'mid' : 'good', 'Sites dont la prochaine visite possible est dépassée au ' + dFrUI(localDay()) + '. Échéance = mois de la dernière visite + intervalle RBM du niveau de risque (' + PL_FK.filter(k => k !== 'never').map(k => PL_CAT[k].toLowerCase() + ' ' + every(cfg.freq[k])).join(', ') + ') ; les mois où la grille d’activation dit « Non » (vacances scolaires, fin de distribution) ne comptent pas dans ce délai ; en retard si l’échéance est antérieure au mois courant. Remplace l’ancien seuil fixe de 90 jours. Tant que la grille n’est pas corrigée (bloc Saisonnalité plus bas), les écoles en vacances restent comptées en retard.');
+    const kSec = secK.length ? kpi(fmt(all.filter(s => s.security >= 99).length), 'Zones interdites', fmt(secK.length) + ' sites renseignés sur ' + fmt(all.length), all.some(s => s.security >= 99) ? 'bad' : null, 'Situation sécuritaire saisie site par site (0, 1, 3 ou 99) ; ' + fmt(all.filter(s => s.security === 3).length) + ' en restriction stricte. Les sites non renseignés restent planifiables.') :
+      kpi(fmt(all.length), 'Sécurité non renseignée', 'sur ' + fmt(all.length) + ' sites', 'na', 'Aucune situation sécuritaire n’a été saisie : les ' + fmt(all.length) + ' sites sont à 0 par défaut (valeur posée à l’import du plan). Zéro zone interdite déclarée ne veut donc pas dire que la vérification a été faite.');
+    const kLow = kpi(fmt(on.filter(s => s.lastScore !== null && s.lastScore < THR.mid).length), 'Dernier score faible', 'sous ' + THR.mid + ' à la dernière visite', 'bad', 'Score de conformité de la dernière visite exploitable inférieur au seuil « faible » (' + scoreRefText() + ').');
+    main.appendChild(el('div', { class: 'kpis pl-kpis' }, [
       kpi(fmt(on.length), 'Sites actifs', 'sur ' + fmt(all.length), null, 'Sites du registre marqués actifs (colonne Actif, modifiable en mode administrateur avec un motif) ; ' + fmt(all.length - on.length) + ' désactivé(s). Seuls les sites actifs, hors zone interdite et actifs le mois considéré (grille), comptent dans la couverture, la carte et la planification.'),
-      kpi(fmt(visited.length), 'Déjà visités', 'sur ' + fmt(plannable.length) + ' sites actifs', null, 'Au moins une visite exploitable sur toute la période des données (du ' + dFrUI(D.period[0]) + ' au ' + dFrUI(D.period[1]) + ') : ' + pct(plannable.length ? visited.length / plannable.length * 100 : null) + ' des sites actifs.'),
-      kpi(fmt(never.length), 'Jamais visités', 'sur ' + fmt(plannable.length), never.length ? 'bad' : 'good', 'Sites actifs sans aucune visite exploitable : risque non mesuré, catégorie à part dans la planification.'),
-      kpi(fmt(late.length), 'En retard', 'sur ' + fmt(visited.length) + ' sites visités', late.length ? 'mid' : 'good', 'Sites dont la prochaine visite possible est dépassée au ' + dFrUI(localDay()) + '. Échéance = mois de la dernière visite + intervalle RBM du niveau de risque (' + PL_FK.filter(k => k !== 'never').map(k => PL_CAT[k].toLowerCase() + ' ' + every(cfg.freq[k])).join(', ') + ') ; les mois où la grille d’activation dit « Non » (vacances scolaires, fin de distribution) ne comptent pas dans ce délai ; en retard si l’échéance est antérieure au mois courant. Remplace l’ancien seuil fixe de 90 jours. Tant que la grille n’est pas corrigée (bloc Saisonnalité plus bas), les écoles en vacances restent comptées en retard.'),
-      secK.length ? kpi(fmt(all.filter(s => s.security >= 99).length), 'Zones interdites', fmt(secK.length) + ' sites renseignés sur ' + fmt(all.length), all.some(s => s.security >= 99) ? 'bad' : null, 'Situation sécuritaire saisie site par site (0, 1, 3 ou 99) ; ' + fmt(all.filter(s => s.security === 3).length) + ' en restriction stricte. Les sites non renseignés restent planifiables.') :
-        kpi(fmt(all.length), 'Sécurité non renseignée', 'sur ' + fmt(all.length) + ' sites', 'na', 'Aucune situation sécuritaire n’a été saisie : les ' + fmt(all.length) + ' sites sont à 0 par défaut (valeur posée à l’import du plan). Zéro zone interdite déclarée ne veut donc pas dire que la vérification a été faite.'),
-      kpi(fmt(on.filter(s => s.lastScore !== null && s.lastScore < THR.mid).length), 'Dernier score faible', 'sous ' + THR.mid + ' à la dernière visite', 'bad', 'Score de conformité de la dernière visite exploitable inférieur au seuil « faible » (' + scoreRefText() + ').')]));
+      kpi(fmt(activeMonth), 'Actifs ce mois', monthLabel(CM), null, 'Sites actifs dont la grille d’activation vaut « Oui » (ou n’est pas encore renseignée) en ' + monthLabel(CM) + ' : seuls ces sites sont planifiables et comptés dans la couverture ce mois.'),
+      kpi(fmt(blank), 'À renseigner', 'grille vide en ' + monthLabel(CM), blank ? 'mid' : 'good', 'Sites actifs dont la case de ' + monthLabel(CM) + ' n’est ni « Oui » ni « Non » : grille d’activation non renseignée. Importez ou saisissez la grille ' + planYearUI() + ' pour confirmer les mois actifs.'),
+      kpi(fmt(never.length), 'Jamais visités', 'sur ' + fmt(plannable.length), never.length ? 'bad' : 'good', 'Sites actifs sans aucune visite exploitable : risque non mesuré, catégorie à part dans la planification.')]));
+    const moreK = el('details', { class: 'pl-levels' });
+    moreK.appendChild(el('summary', { text: 'Plus d’indicateurs' }));
+    moreK.appendChild(el('div', { class: 'kpis pl-kpis' }, [kVisited, kLate, kSec, kLow]));
+    main.appendChild(moreK);
     const qs = inp({ type: 'search', placeholder: 'ID, code, localité, commune, district…', 'aria-label': 'Rechercher un site' }); qs.value = SITE_UI.q; qs.addEventListener('change', () => { SITE_UI.q = qs.value; SITE_UI.page = 0; render(); });
     const ss = el('select', { 'aria-label': 'Statut' }); [['all', 'Tous les sites'], ['on', 'Actifs'], ['off', 'Désactivés'], ['never', 'Jamais visités'], ['late', 'En retard'], ['secnr', 'Sécurité non renseignée']].forEach(([v, t]) => { const o = el('option', { value: v, text: t }); if (v === SITE_UI.status) o.selected = true; ss.appendChild(o); });
     ss.addEventListener('change', () => { SITE_UI.status = ss.value; SITE_UI.page = 0; render(); });
@@ -783,10 +1179,16 @@
     const bar = el('div', { class: 'frow' }, [el('label', { class: 'fld' }, ['Recherche', qs]), el('label', { class: 'fld' }, ['Statut', ss]),
       btn('Registre DOTS (.xlsx)', plExportDots, 'on'), btn('Plan de suivi RBM (.xlsx)', plExportRbmPlan), lockBadge(), !SESSION.admin ? btn('Gérer', () => requireAdmin(render)) : null,
       SESSION.planPending ? el('span', { class: 'hint', text: 'Mise à jour de la carte…' }) : null]);
+    const tplBar = el('div', { class: 'frow pl-tplbar' }, [
+      el('span', { class: 'pl-tpl-lbl' }, ['Modèles Excel', infoBtn('Téléchargez un classeur pré-configuré (admin area pré-remplis depuis le référentiel .dbf, listes déroulantes Oui/Non et zones), modifiez-le hors-ligne dans Excel, puis ré-importez-le (onglet Données) : une vérification chiffrée Avant → Après s’affiche avant d’appliquer.\n\n• Site Actif : met à jour la grille mensuelle (Oui/Non) des sites existants, par identifiant ; une case vide laisse le mois inchangé ; aucun site créé.\n• Plan de suivi : le registre complet (ajout / retrait / activation de sites).')]),
+      btn('Modèle Excel (Site Actif)', plSiteActifTemplate),
+      btn('Modèle Excel (Plan de suivi)', plPlanTemplate),
+      SESSION.admin ? btn('＋ Ajouter un site', () => requireAdmin(plAddSiteModal)) : null,
+      SESSION.plAdded ? el('span', { class: 'hint pl-added', text: SESSION.plAdded }) : null]);
     const pager = pages > 1 ? el('div', { class: 'frow' }, [btn('‹ Précédente', () => { SITE_UI.page = Math.max(0, SITE_UI.page - 1); render(); }), el('span', { class: 'hint', text: 'Sites ' + fmt(SITE_UI.page * PAGE + 1) + '–' + fmt(Math.min(rows.length, SITE_UI.page * PAGE + PAGE)) + ' sur ' + fmt(rows.length) }), btn('Suivante ›', () => { SITE_UI.page = Math.min(pages - 1, SITE_UI.page + 1); render(); })]) : null;
     const rk = s => { if (!s.lastV) return '–'; const n = s.lastRisks.length; const sp = el('span', { class: 'cell bg-' + (n ? 'bad' : 'good'), text: String(n) }); bindTip(sp, () => n ? 'Alertes à la dernière visite (' + s.last + ') :\n• ' + riskNames(s).join('\n• ') : 'Aucune alerte critique à la dernière visite.'); return sp; };
     const scc = s => s.lastScore === null ? '–' : cell(s.lastScore, false, 'Dernière visite : ' + s.last + (s.hist.length > 1 ? '\nScores précédents : ' + s.hist.slice(-4, -1).map(v => v.date + ' → ' + fmt(v.score, 0)).join(' ; ') : ''));
-    main.appendChild(plCard('Registre des sites', 'Registre unique : ' + fmt(D.planFull.rows.length) + ' sites, clé Code POI + activité. Filtres du haut : activité, bureau, région, district.\nUn site est planifiable un mois donné si Actif = Oui, grille du mois à Oui et hors zone interdite.\nEn mode administrateur : Actif (avec motif), grille mensuelle (clic sur un mois) et sécurité sont modifiables ; chaque changement est journalisé et met aussitôt à jour la couverture, la carte et le plan.\nChaque ligne ouvre le détail du site.', [bar, pager,
+    main.appendChild(plCard('Registre des sites', 'Registre unique : ' + fmt(D.planFull.rows.length) + ' sites, clé Code POI + activité. Filtres du haut : activité, bureau, région, district.\nUn site est planifiable un mois donné si Actif = Oui, grille du mois à Oui et hors zone interdite.\nEn mode administrateur : Actif (avec motif), grille mensuelle (clic sur un mois) et sécurité sont modifiables ; chaque changement est journalisé et met aussitôt à jour la couverture, la carte et le plan.\nChaque ligne ouvre le détail du site.', [bar, tplBar, pager,
       table([{ k: 'publicId', t: 'ID site', title: 'Identifiant public MEMS (S-XXXX-XXXX), attribué une fois et jamais modifié' }, { k: 'code', t: 'Code POI' }, { k: 'act', t: 'Activité', fmt: s => ACT[s.act].short }, { k: 'region', t: 'Région' }, { k: 'district', t: 'District' }, { k: 'commune', t: 'Commune' }, { k: 'localite', t: 'Localité / école' }, { k: 'fo', t: 'Bureau' },
         { k: 'actif', t: 'Actif', fmt: plActCell, sortVal: s => s.actif ? 1 : 0, title: 'Site actif dans le plan de suivi (modifiable en mode administrateur, avec motif)' },
         { k: 'cat', t: 'Risque', fmt: s => s.actif && s.security < 99 ? plCatBadge(s) : '–', sortVal: s => s.actif && s.security < 99 ? s.sortKey : -1 },
@@ -840,6 +1242,8 @@
       return { act: a.short, kind: 'Données de visites', date: u.date || '–', by: u.by || '–', file: u.file || '–', rows: u.rows, subs: dq.subs, vv: dq.validVisits, per: vs.length ? vs[0] + ' → ' + vs[vs.length - 1] : '–' }; });
     const pu = U.PLAN || {}, pe = CUR.planEdited, RP = plStore(false);
     rows.push({ act: 'Plan de suivi (registre)', kind: 'Plan de suivi', date: pu.date || 'version d’origine', by: pu.by || '–', file: pu.file || '–', rows: D.planFull.rows.length, subs: null, vv: null, per: 'année ' + planYearUI() + (pe ? ' · modifié le ' + pe.date + ' par ' + pe.by + ' (' + fmt((CUR.planLog || []).length) + ' changement(s) journalisé(s))' : '') });
+    const au = U.ADMIN, ar = CUR.adminRef;
+    if (au) rows.push({ act: 'Zones administratives (référentiel)', kind: 'Référentiel', date: au.date || '–', by: au.by || '–', file: au.file || '–', rows: au.rows, subs: null, vv: null, per: ar ? (ar.maxLevel + ' niveau(x) : ' + Object.keys(ar.counts || {}).map(n => fmt((ar.counts[n] || {}).pcodes || 0) + ' P-codes niv. ' + n).join(', ')) : '–' });
     if (RP && Object.keys(RP.months).length) rows.push({ act: 'Plan de visites validé', kind: 'Planification', date: RP.savedAt || '–', by: RP.by || '–', file: '–', rows: Object.keys(RP.months).reduce((a, m) => a + (RP.months[m].n || 0), 0), subs: null, vv: null, per: Object.keys(RP.months).sort().map(monthLabel).join(', ') });
     if (D.rbmSaved) rows.push({ act: 'Paramètres de planification', kind: 'Planification', date: D.rbmSaved.date, by: D.rbmSaved.by, file: '–', rows: null, subs: null, vv: null, per: '–' });
     main.appendChild(plCard('Mises à jour', 'Les données de visites (une extraction par activité) et le plan de suivi (registre des sites) sont mis à jour séparément ; la date et l’auteur de chacun sont enregistrés dans le fichier.', [table([
@@ -851,12 +1255,109 @@
     main.appendChild(plCard('Journal des imports', 'Enregistré dans le fichier (200 derniers imports).', [table([{ k: 'when', t: 'Date' }, { k: 'by', t: 'Par' }, { k: 'what', t: 'Import' }, { k: 'res', t: 'Résultat' }, { k: 'warn', t: 'À noter' }], L.length ? L : SESSION.log.slice().reverse())], 'wide'));
   }
   const PL_MAX_FILE = 150e6;
+  const ADM_LABEL_PL = { 1: 'Régions', 2: 'Districts', 3: 'Communes', 4: 'Fokontany', 5: 'Villages' };
+  // noms d'entrées d'un .zip (répertoire central seulement) : pour distinguer un shapefile (.dbf) d'un classeur Excel
+  function plZipNames(buf) {
+    const u8 = new Uint8Array(buf), dv = new DataView(buf); let eocd = -1;
+    for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+    if (eocd < 0) return [];
+    const nE = dv.getUint16(eocd + 10, true), cdOff = dv.getUint32(eocd + 16, true); if (nE > 4000) throw new Error('archive refusée : ' + nE + ' entrées (plafond 4000).');
+    const names = []; let p = cdOff;
+    for (let k = 0; k < nE; k++) { if (p + 46 > u8.length || dv.getUint32(p, true) !== 0x02014b50) break; const nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true); names.push(new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nl))); p += 46 + nl + xl + cl; }
+    return names;
+  }
+  // extrait le .dbf (et son .cpg pour l'encodage) d'un .zip de shapefile — même garde anti-bombe que le lecteur XLSX
+  async function plDbfFromZip(buf) {
+    if (typeof DecompressionStream === 'undefined') throw new Error('ce navigateur ne sait pas ouvrir les archives .zip (DecompressionStream absent) : extrayez le fichier .dbf du .zip et importez-le directement.');
+    const LIM = { entries: 4000, total: 150e6, ratio: 100 };
+    const u8 = new Uint8Array(buf), dv = new DataView(buf); let eocd = -1;
+    for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+    if (eocd < 0) throw new Error('archive .zip illisible (fin d’archive introuvable).');
+    const nE = dv.getUint16(eocd + 10, true), cdOff = dv.getUint32(eocd + 16, true);
+    if (nE > LIM.entries) throw new Error('archive refusée : ' + nE + ' entrées (plafond ' + LIM.entries + ').');
+    const E = []; let p = cdOff;
+    for (let k = 0; k < nE; k++) {
+      if (p + 46 > u8.length || dv.getUint32(p, true) !== 0x02014b50) throw new Error('répertoire de l’archive corrompu.');
+      const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true), usize = dv.getUint32(p + 24, true), nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), lho = dv.getUint32(p + 42, true);
+      const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nl)); p += 46 + nl + xl + cl;
+      if (/\.\.|^\/|\\|[\x00-\x1f]/.test(name)) throw new Error('archive refusée : chemin suspect « ' + name.slice(0, 60) + ' ».');
+      E.push({ name: name, method: method, csize: csize, usize: usize, lho: lho });
+    }
+    const readBytes = async (e, maxOut) => {
+      if (e.usize > maxOut) throw new Error('archive refusée : « ' + e.name + ' » ferait ' + fmt(e.usize / 1e6, 0) + ' Mo décompressé (plafond ' + fmt(maxOut / 1e6, 0) + ' Mo).');
+      if (e.csize && e.usize / e.csize > LIM.ratio) throw new Error('archive refusée : taux de compression anormal (' + fmt(e.usize / e.csize, 0) + ' pour 1) sur « ' + e.name + ' ».');
+      if (e.lho + 30 > u8.length || dv.getUint32(e.lho, true) !== 0x04034b50) throw new Error('entrée d’archive corrompue.');
+      const start = e.lho + 30 + dv.getUint16(e.lho + 26, true) + dv.getUint16(e.lho + 28, true); if (start + e.csize > u8.length) throw new Error('entrée d’archive tronquée.');
+      const data = u8.subarray(start, start + e.csize);
+      if (e.method === 0) return data.slice();
+      if (e.method !== 8) throw new Error('compression non prise en charge dans « ' + e.name + ' ».');
+      const rdr = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw')).getReader(); const chunks = []; let tot = 0;
+      for (;;) { const r = await rdr.read(); if (r.done) break; tot += r.value.length; if (tot > e.usize + 1024 || tot > maxOut) { try { await rdr.cancel(); } catch (x) { /* arrêt */ } throw new Error('archive refusée : décompression au-delà de la taille déclarée.'); } chunks.push(r.value); }
+      const out = new Uint8Array(tot); let o = 0; chunks.forEach(c => { out.set(c, o); o += c.length; }); return out;
+    };
+    const base = n => n.toLowerCase().replace(/^.*\//, '');
+    const dbfE = E.find(e => /\.dbf$/i.test(e.name) && !/__macosx|^__/i.test(base(e.name)));
+    if (!dbfE) throw new Error('aucun fichier .dbf trouvé dans l’archive .zip.');
+    const bn = base(dbfE.name).replace(/\.dbf$/i, '');
+    const cpgE = E.find(e => /\.cpg$/i.test(e.name) && base(e.name).replace(/\.cpg$/i, '') === bn) || E.find(e => /\.cpg$/i.test(e.name));
+    const dbf = await readBytes(dbfE, 50e6); let cpg = null; if (cpgE) { try { cpg = new TextDecoder().decode(await readBytes(cpgE, 4096)); } catch (e) { /* encodage deviné */ } }
+    // géométrie (.shp) du MÊME shapefile : lue si présente, pour alimenter CUR.adminGeo (carte). Absente = rien stocké (comportement conservé).
+    const shpE = E.find(e => /\.shp$/i.test(e.name) && base(e.name).replace(/\.shp$/i, '') === bn) || E.find(e => /\.shp$/i.test(e.name) && !/__macosx|^__/i.test(base(e.name)));
+    let shp = null; if (shpE) { try { shp = await readBytes(shpE, 60e6); } catch (e) { /* géométrie ignorée si trop lourde */ } }
+    return { dbf: dbf, cpg: cpg, shp: shp, name: base(dbfE.name) };
+  }
+  // ---- Lecteur de géométrie .shp PUR (DataView, sans dépendance). En-tête 100 o (code 9994 big-endian) ; chaque enregistrement :
+  // n° + longueur (big-endian) ; contenu : type (little-endian). Polygones 5 / 15 / 25 (X,Y d'abord, Z/M ignorés) → anneaux [lng,lat].
+  // Réf. ESRI Shapefile Technical Description (1998). Renvoie une entrée par enregistrement, dans l'ordre du .dbf.
+  const PL_SHP_MAXPTS = 400;   // points par anneau après simplification (décimation régulière, 1ᵉʳ et dernier conservés)
+  function plParseShp(buf) {
+    const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+    const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+    if (u8.length < 100 || dv.getInt32(0, false) !== 9994) throw new Error('fichier .shp invalide (code 9994 attendu).');
+    const out = []; let off = 100;
+    const simplify = ring => { const n = ring.length; if (n <= PL_SHP_MAXPTS) return ring; const step = Math.ceil(n / PL_SHP_MAXPTS); const r = []; for (let k = 0; k < n; k += step) r.push(ring[k]); if (r[r.length - 1] !== ring[n - 1]) r.push(ring[n - 1]); return r; };
+    while (off + 8 <= u8.length) {
+      const contentLen = dv.getInt32(off + 4, false) * 2; const start = off + 8; off = start + contentLen;
+      if (off > u8.length || contentLen < 4) { out.push(null); break; }
+      const type = dv.getInt32(start, true); const base = type % 10;
+      if (type === 0) { out.push(null); continue; }
+      if (base !== 5) { out.push(null); continue; }   // seuls les polygones nous intéressent pour les zones administratives
+      const numParts = dv.getInt32(start + 36, true), numPoints = dv.getInt32(start + 40, true);
+      if (numParts < 0 || numParts > 1e6 || numPoints < 0 || numPoints > 1e7) { out.push(null); continue; }
+      const partsAt = start + 44, ptsAt = partsAt + 4 * numParts;
+      if (ptsAt + 16 * numPoints > u8.length) { out.push(null); continue; }
+      const rings = [];
+      for (let p = 0; p < numParts; p++) {
+        const from = dv.getInt32(partsAt + 4 * p, true), to = p + 1 < numParts ? dv.getInt32(partsAt + 4 * (p + 1), true) : numPoints;
+        const ring = []; for (let k = from; k < to; k++) { const x = dv.getFloat64(ptsAt + 16 * k, true), y = dv.getFloat64(ptsAt + 16 * k + 8, true); ring.push([Math.round(x * 1e4) / 1e4, Math.round(y * 1e4) / 1e4]); }
+        if (ring.length >= 4) rings.push(simplify(ring));
+      }
+      out.push(rings.length ? rings : null);
+    }
+    return out;
+  }
+  // Construit la géométrie des zones par niveau + P-code : CUR.adminGeo = { adm1:{<pcode>:{name,rings}}, adm2:{…}, … }.
+  // Niveau = niveau le plus fin du .dbf (admFromDbf) ; aligné par ordre d'enregistrement avec la table attributaire.
+  function plBuildAdminGeo(shpBytes, parsed) {
+    const A = ENGINE.admFromDbf(parsed.fields, parsed.records); if (!A.maxLevel) return { err: 'aucun niveau administratif reconnu dans le .dbf.' };
+    const geoms = plParseShp(shpBytes);
+    const recs = A.records, N = Math.min(recs.length, geoms.length);
+    const lvl = A.maxLevel; const byLevel = {}; let stored = 0, totalPts = 0, polys = 0;
+    for (let i = 0; i < N; i++) {
+      const g = geoms[i]; if (!g || !g.length) continue;
+      const pc = String(recs[i].pcodes[lvl - 1] || '').trim(), nm = String(recs[i].names[lvl - 1] || '').trim();
+      if (!pc || !PL_SAFE(pc)) continue;
+      const key = 'adm' + lvl; if (!byLevel[key]) byLevel[key] = {};
+      if (!byLevel[key][pc]) { byLevel[key][pc] = { name: nm, rings: g }; stored++; polys++; g.forEach(r => { totalPts += r.length; }); }
+    }
+    return { geo: byLevel, level: lvl, stored: stored, polys: polys, totalPts: totalPts, records: N, geomRead: geoms.filter(Boolean).length };
+  }
   function plImportCard(main) {
     const by = inp({ type: 'text', placeholder: 'Nom de la personne', maxlength: 60, 'aria-label': 'Mis à jour par' }); by.value = SESSION.by || '';
     by.addEventListener('input', () => { SESSION.by = by.value.slice(0, 60); });
-    const sel = el('select', { 'aria-label': 'Contenu du fichier' }); [['AUTO', 'Détection automatique']].concat(D.acts.map(a => [a.code, a.label]), [['PLAN', 'Plan de suivi (registre des sites)'], ['RBMPLAN', 'Plan de suivi (classeur RBM)']]).forEach(([v, t]) => sel.appendChild(el('option', { value: v, text: t })));
-    const fi = inp({ type: 'file', accept: '.csv,.txt,.xlsx,text/csv', 'aria-label': 'Fichier à importer' });
-    const st = el('p', { class: 'hint pl-ist', text: 'CSV ou XLSX : extraction Tableau, export Kobo, ONA ou MoDA, ou plan de suivi.' });
+    const sel = el('select', { 'aria-label': 'Contenu du fichier' }); [['AUTO', 'Détection automatique']].concat(D.acts.map(a => [a.code, a.label]), [['PLAN', 'Plan de suivi (registre des sites)'], ['SITEACT', 'Modèle Site Actif (activation)'], ['RBMPLAN', 'Plan de suivi (classeur RBM)'], ['DBF', 'Zones administratives (.dbf / .zip / .shp)']]).forEach(([v, t]) => sel.appendChild(el('option', { value: v, text: t })));
+    const fi = inp({ type: 'file', accept: '.csv,.txt,.xlsx,.dbf,.zip,text/csv', 'aria-label': 'Fichier à importer' });
+    const st = el('p', { class: 'hint pl-ist', text: 'CSV ou XLSX : extraction Tableau, export Kobo, ONA ou MoDA, ou plan de suivi. .dbf ou .zip : table d’un shapefile pour le découpage administratif.' });
     const pv = el('div', { class: 'pl-imp' });
     const say = (t, warn) => { st.textContent = t; st.className = 'note' + (warn ? ' warn' : ''); };
     fi.addEventListener('change', () => {
@@ -866,15 +1367,41 @@
       const rd = new FileReader(); rd.onerror = () => say('Lecture impossible.', true);
       rd.onload = async () => {
         try {
-          const u8 = new Uint8Array(rd.result); let text, sheet = null, xmeta = null;
-          if (u8.length > 3 && u8[0] === 0x50 && u8[1] === 0x4B && u8[2] === 3 && u8[3] === 4) { const X = await plXlsxToCsv(rd.result); text = X.csv; sheet = X.sheet; xmeta = X; }
+          const u8 = new Uint8Array(rd.result);
+          const lname = (f.name || '').toLowerCase();
+          const isZip = u8.length > 3 && u8[0] === 0x50 && u8[1] === 0x4B && u8[2] === 3 && u8[3] === 4;
+          // ---- Zones administratives : fichier .dbf ou .zip (table attributaire + éventuelle géométrie .shp d'un shapefile)
+          let dbfBytes = null, cpgTxt = null, shpBytes = null;
+          if (sel.value === 'DBF') {
+            if (isZip) { const Z = await plDbfFromZip(rd.result); dbfBytes = Z.dbf; cpgTxt = Z.cpg; shpBytes = Z.shp; }
+            else dbfBytes = u8;
+          } else if (sel.value === 'AUTO') {
+            if (isZip) { const names = plZipNames(rd.result); const hasXlsx = names.some(n => /(^|\/)xl\/workbook\.xml$/i.test(n)); const hasDbf = names.some(n => /\.dbf$/i.test(n) && !/__macosx/i.test(n)); if (hasDbf && !hasXlsx) { const Z = await plDbfFromZip(rd.result); dbfBytes = Z.dbf; cpgTxt = Z.cpg; shpBytes = Z.shp; } }
+            else if (lname.endsWith('.dbf') || ENGINE.dbfLooksLike(u8)) dbfBytes = u8;
+          }
+          if (dbfBytes) {
+            const parsed = ENGINE.parseDbf(dbfBytes, cpgTxt);
+            const P = ENGINE.previewAdmin(CUR, parsed);
+            let geo = null; if (shpBytes) { try { geo = plBuildAdminGeo(shpBytes, parsed); } catch (e) { geo = { err: String((e && e.message) || e) }; } }
+            PLS.imp = { name: f.name, act: 'DBF', parsed: parsed, P: P, shp: shpBytes, geo: geo };
+            plComputeBeforeAfter(PLS.imp);
+            say('Vérification terminée, rien n’a été modifié.');
+            plPreviewView(pv, PLS.imp);
+            return;
+          }
+          let text, sheet = null, xmeta = null;
+          if (isZip) { const X = await plXlsxToCsv(rd.result); text = X.csv; sheet = X.sheet; xmeta = X; }
           else { text = new TextDecoder('utf-8').decode(u8); const bad = (text.slice(0, 200000).match(/�/g) || []).length; if (bad > 20) { try { text = new TextDecoder('windows-1252').decode(u8); } catch (e) { /* utf-8 gardé */ } } }
           const head = text.slice(0, Math.min(text.length, 1e6)).split(/\r?\n/)[0];
           const det = ENGINE.detectActDetail(CUR, head); let act = sel.value === 'AUTO' ? det.act : sel.value;
           if (xmeta && xmeta.isRbm && sel.value === 'AUTO') act = 'RBMPLAN';   // classeur reconnu par la feuille Plan_de_suivi
+          // modèle « Site Actif » : feuille nommée « Site Actif » (xlsx) ou en-tête Identifiant + mois sans « Tag code » (csv)
+          if (sel.value === 'AUTO' && (/^site[\s_]*actif$/i.test(String(sheet || '').replace(/\s+/g, '_')) || (!act && plLooksSiteActif(head)))) act = 'SITEACT';
           if (!act) { say('Contenu non reconnu : choisissez l’activité puis rechargez le fichier.', true); plDetectView(pv, det); return; }
-          const P = act === 'RBMPLAN' ? ENGINE.previewRbmPlan(CUR, text, xmeta && xmeta.rbm) : act === 'PLAN' ? ENGINE.previewPlan(CUR, text) : ENGINE.previewExtract(CUR, text, act);
+          const P = act === 'SITEACT' ? null : act === 'RBMPLAN' ? ENGINE.previewRbmPlan(CUR, text, xmeta && xmeta.rbm) : act === 'PLAN' ? ENGINE.previewPlan(CUR, text) : ENGINE.previewExtract(CUR, text, act);
           PLS.imp = { name: f.name, text, act, P, det, sheet, xmeta };
+          plComputeBeforeAfter(PLS.imp);
+          if (act === 'SITEACT' && PLS.imp.baErr) { say('Modèle Site Actif non reconnu : ' + PLS.imp.baErr, true); return; }
           say('Vérification terminée, rien n’a été modifié.');
           plPreviewView(pv, PLS.imp);
         } catch (e) { say('Import refusé : ' + String((e && e.message) || e) + '. Les données existantes n’ont pas été modifiées.', true); }
@@ -892,7 +1419,23 @@
     clear(pv); const P = I.P, errs = [], warns = [];   // warns : [texte court, détail]
     let kv, cols;
     const colTable = rows => el('div', { class: 'tw' }, (() => { const t = el('table'); t.appendChild(el('thead', null, el('tr', null, ['Colonne attendue', 'Colonne du fichier', 'Règle'].map(h => el('th', { scope: 'col', text: h }))))); const tb = el('tbody'); rows.forEach(a => tb.appendChild(el('tr', null, [el('td', { text: a[0] }), el('td', { text: a[1] }), el('td', { text: a[2] === 'liste' ? 'choix multiple dans une seule colonne' : a[2] === 'identifiant' ? 'identifiant de soumission' : 'nom de variable' })]))); t.appendChild(tb); return t; })());
-    if (I.act === 'RBMPLAN') {
+    const col2Table = (head, rows) => el('div', { class: 'tw' }, (() => { const t = el('table'); t.appendChild(el('thead', null, el('tr', null, head.map(h => el('th', { scope: 'col', text: h }))))); const tb = el('tbody'); rows.forEach(a => tb.appendChild(el('tr', null, a.map(x => el('td', { text: x }))))); t.appendChild(tb); return t; })());
+    if (I.act === 'DBF') {
+      if (!P.maxLevel) errs.push('Aucune colonne de zone administrative reconnue');
+      (P.perLevel || []).forEach(l => { if (l.nameCol && !l.pcodeCol) warns.push(['P-code absent pour « ' + ADM_LABEL_PL[l.level] + ' »', 'La colonne de nom « ' + l.nameCol + ' » est reconnue mais aucune colonne de P-code pour ce niveau : ces zones ne pourront pas être rapprochées par code.']); });
+      (P.perLevel || []).forEach(l => { if (l.withName && l.missingPcode) warns.push([fmt(l.missingPcode) + ' ' + ADM_LABEL_PL[l.level].toLowerCase() + ' sans P-code', 'Zones nommées sans code dans le fichier : non rapprochables par P-code.']); });
+      kv = [['Contenu', 'Zones administratives'], ['Fichier', fmt(P.nRecords) + ' enregistrements, ' + fmt(P.nFields) + ' champs, encodage ' + (P.encoding === 'utf-8' ? 'UTF-8' : 'Windows-1252 (latin1)')]];
+      (P.perLevel || []).forEach(l => kv.push([ADM_LABEL_PL[l.level], fmt(l.distinctNames) + ' zones, ' + fmt(l.distinctPcodes) + ' P-codes' + (l.missingPcode ? ', ' + fmt(l.missingPcode) + ' sans code' : '')]));
+      kv.push(['Référentiel', fmt(P.totalAdded) + ' P-codes nouveaux, ' + fmt(P.totalChanged) + ' renommés']);
+      kv.push(['Coordonnées', P.gps && P.gps.lat && P.gps.lon ? fmt(P.gps.withGps) + ' zones géolocalisées' : 'aucune']);
+      if (I.geo && I.geo.geo) kv.push(['Géométrie (carte)', fmt(I.geo.polys) + ' polygone(s) lus (niveau ' + (ADM_LABEL_PL[I.geo.level] || I.geo.level) + ') — seront stockés pour la carte (CUR.adminGeo)']);
+      else if (I.geo && I.geo.err) warns.push(['Géométrie .shp non lue', 'La table attributaire est importée ; la géométrie n’a pas pu être parsée : ' + I.geo.err]);
+      else if (I.shp === undefined && I.name && /\.zip$/i.test(I.name)) kv.push(['Géométrie (carte)', 'aucun .shp dans l’archive (seuls les attributs sont importés)']);
+      if (P.deleted) kv.push(['Supprimés (ignorés)', fmt(P.deleted)]);
+      cols = [el('p', { class: 'hint', text: 'Colonnes reconnues par leur nom :' }), col2Table(['Colonne du fichier', 'Rôle'], (P.recognized || []).map(a => [a[0], a[1]])),
+        (P.perLevel && P.perLevel.length) ? col2Table(['Niveau', 'Zones', 'P-codes', 'Nouveaux', 'Renommés'], P.perLevel.map(l => [ADM_LABEL_PL[l.level], fmt(l.distinctNames), fmt(l.distinctPcodes), fmt(l.added), fmt(l.changed)])) : null,
+        (P.examples && P.examples.length) ? el('p', { class: 'hint', text: 'Exemples : ' + P.examples.map(e => e.path).filter(Boolean).slice(0, 4).join(' · ') }) : null];
+    } else if (I.act === 'RBMPLAN') {
       if (P.err) { errs.push(P.err); }
       else {
         const byActTxt = Object.keys(P.byAct || {}).map(a => (ACT[a] ? ACT[a].short : a) + ' ' + fmt(P.byAct[a])).join(', ') || '–';
@@ -916,6 +1459,14 @@
       if (P.removed) warns.push([fmt(P.removed) + ' sites seront retirés du registre', 'Sites du registre actuel absents du fichier. Leur identifiant S-XXXX-XXXX et leur sécurité sont conservés s’ils reviennent.']);
       kv = [['Contenu', 'Plan de suivi' + (I.sheet ? ', feuille ' + I.sheet : '')], ['Sites reconnus', fmt(P.sites) + ' (actuellement ' + fmt(D.planFull.rows.length) + ')'], ['Changements', fmt(P.added) + ' ajoutés, ' + fmt(P.removed) + ' retirés, ' + fmt(P.actifChanged) + ' Actif modifiés, ' + fmt(P.monthsChanged) + ' grilles modifiées'], ['Année', P.years.join(', ') || '–']];
       cols = [el('p', { class: 'hint', text: fmt(P.rows) + ' lignes, ' + fmt(P.exactN) + ' colonnes reconnues par leur nom, ' + fmt(P.aliasN) + ' par correspondance, ' + fmt(P.ignored.length) + ' ignorées.' }), P.alias.length ? colTable(P.alias) : null, P.ignored.length ? el('p', { class: 'hint', text: 'Ignorées : ' + P.ignored.join(', ') }) : null];
+    } else if (I.act === 'SITEACT') {
+      const sa = I.sa || {};
+      if (I.baErr) errs.push(I.baErr);
+      else if (!sa.matched) errs.push('Aucun site du modèle n’a pu être rapproché du registre (vérifiez la colonne « Identifiant »)');
+      kv = [['Contenu', 'Modèle Site Actif (activation)' + (I.sheet ? ', feuille ' + I.sheet : '')], ['Rapprochement', 'par Identifiant (S-XXXX-XXXX) puis Code POI + activité'],
+        ['Lignes du fichier', fmt(sa.totalRows)], ['Sites rapprochés', fmt(sa.matched) + ' sur ' + fmt(D.planFull.rows.length) + ' du registre'],
+        ['Grilles modifiées', fmt(sa.monthsChanged) + ' (case vide = mois inchangé)'], ['Sites inconnus', fmt(sa.unknown) + ' (ignorés, jamais créés)'], ['Mois lus', fmt(sa.nMon) + ' / 12']];
+      cols = [el('p', { class: 'hint', text: 'Le modèle Site Actif met à jour UNIQUEMENT la grille mensuelle (Oui/Non par mois) et le motif des sites existants. Le statut global « Actif », la géographie et les visites ne sont pas touchés.' })];
     } else {
       const S = ACT[I.act]; const share = P.nVars ? P.found / P.nVars : 0;
       if (!P.idOk) errs.push('Aucune colonne d’identifiant (Tableau, _uuid, _id ou meta/instanceID)');
@@ -945,19 +1496,42 @@
         P.alias.length ? colTable(P.alias) : null, P.missing.length ? el('p', { class: 'hint', text: 'Variables attendues absentes (' + fmt(P.missing.length) + ', indicateurs correspondants vides) : ' + P.missing.join(', ') }) : null, P.ignored.length ? el('p', { class: 'hint', text: 'Colonnes ignorées : ' + P.ignored.join(', ') }) : null];
     }
     pv.appendChild(xsec('Vérification', [kvList(kv)]));
+    // aperçu AVANT → APRÈS chiffré (P1) + avertissements de réduction : rien n'est écrit tant que « Appliquer » n'est pas cliqué
+    if (I.baKind) { const ba = plBeforeAfterSection(I); pv.appendChild(ba.sec); ba.warns.forEach(w => warns.unshift(w)); }
     pv.appendChild(el('details', { class: 'rbm-panel' }, [el('summary', { text: 'Colonnes' })].concat(cols.filter(Boolean))));
     errs.forEach(t => pv.appendChild(el('p', { class: 'note warn', text: t })));
     if (warns.length) pv.appendChild(el('div', { class: 'pl-warns' }, warns.map(w => el('span', { class: 'pl-wchip' }, [w[0], infoBtn(w[1])]))));
     const go = btn('Appliquer l’import', () => plApplyImport(), 'on'); if (errs.length) { go.disabled = true; go.title = 'Vérification échouée : rien ne sera écrit.'; }
     pv.appendChild(el('div', { class: 'frow' }, [go, btn('Annuler', () => { PLS.imp = null; clear(pv); })]));
   }
+  // Modèle « Site Actif » : mise à jour incrémentale (grille mensuelle) via l'écriture unique plEdit — ne retire ni ne crée aucun site.
+  function plApplySiteActif(I) {
+    const sa = I.sa; if (!sa) return;
+    requireAdmin(() => {
+      const when = today() + ' ' + new Date().toTimeString().slice(0, 5), who = SESSION.by || '—';
+      const entry = { when, by: who, what: 'Modèle Site Actif – ' + I.name, res: fmt(sa.matched) + ' site(s) rapproché(s), ' + fmt(sa.monthsChanged) + ' grille(s) mensuelle(s) modifiée(s)', warn: sa.unknown ? fmt(sa.unknown) + ' site(s) inconnu(s) ignoré(s)' : '—' };
+      CUR.importLog = (CUR.importLog || []).concat([entry]).slice(-200); SESSION.log.push(entry);
+      PLS.imp = null;
+      if (sa.changes.length) plEdit(sa.changes, { batch: true, field: 'months', scope: 'Modèle Site Actif (' + I.name + ')', before: '', after: fmt(sa.monthsChanged) + ' grilles', motif: 'Import modèle Site Actif' });
+      else { SESSION.dirty = true; render(); }
+    });
+  }
   function plApplyImport() {
     const I = PLS.imp; if (!I) return;
+    if (I.act === 'SITEACT') { plApplySiteActif(I); return; }
     requireAdmin(() => setTimeout(() => {
       const when = today() + ' ' + new Date().toTimeString().slice(0, 5), who = SESSION.by || '—';
       try {
         let P2, entry;
-        if (I.act === 'RBMPLAN') {
+        if (I.act === 'DBF') {
+          const res = ENGINE.importAdmin(CUR, I.parsed, { date: today(), by: who, file: I.name }); const Rp = res.report;
+          P2 = ENGINE.refreshPlanTables(res.P);
+          // géométrie du .shp (si présente) → CUR.adminGeo, par niveau + P-code (fusion avec l'existant, aucune zone perdue)
+          if (I.geo && I.geo.geo) { P2.adminGeo = Object.assign({}, P2.adminGeo || {}); Object.keys(I.geo.geo).forEach(lk => { P2.adminGeo[lk] = Object.assign({}, P2.adminGeo[lk] || {}, I.geo.geo[lk]); }); }
+          const added = Object.keys(Rp.counts).reduce((a, n) => a + Rp.counts[n].added, 0), changed = Object.keys(Rp.counts).reduce((a, n) => a + Rp.counts[n].changed, 0);
+          const lv = Object.keys(Rp.counts).map(n => (ADM_LABEL_PL[n] || ('niv. ' + n)).toLowerCase()).join(', ');
+          entry = { when: when, by: who, what: 'Zones administratives – ' + I.name, res: fmt(Rp.nRecords) + ' zones (' + lv + ') : ' + fmt(added) + ' P-codes ajoutés, ' + fmt(changed) + ' renommés' + (Rp.siteReResolved ? ', ' + fmt(Rp.siteReResolved) + ' sites réalignés' : '') + (I.geo && I.geo.geo ? ', ' + fmt(I.geo.polys) + ' polygone(s) carte' : ''), warn: '—' };
+        } else if (I.act === 'RBMPLAN') {
           const res = ENGINE.importRbmPlan(CUR, I.text, I.xmeta && I.xmeta.rbm, { date: today(), by: who, file: I.name }); const Rp = res.report;
           P2 = ENGINE.refreshPlanTables(res.P);
           entry = { when, by: who, what: 'Plan de suivi (classeur RBM) – ' + I.name, res: fmt(Rp.nPlan) + ' sites du plan (' + fmt(Rp.added) + ' ajoutés, ' + fmt(Rp.updated) + ' mis à jour), registre : ' + fmt(Rp.totalSites) + ' sites' + (Rp.overApplied.length ? ' · MMR ' + Rp.overApplied.join(', ') : ''), warn: Rp.skippedType ? fmt(Rp.skippedType) + ' ligne(s) au type d’activité non reconnu' : '—' };

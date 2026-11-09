@@ -101,3 +101,119 @@
 .ov-cq{gap:6px;margin:0 0 6px}
 .ov-jrnl{list-style:none;margin:0;padding:0;font-size:12.5px;display:flex;flex-direction:column;gap:4px}
 .ov-jrnl li{border-left:2px solid var(--line);padding:2px 0 2px 8px}
+/* ===== composants infographiques : jauge, sparkline, radar, notes, cartes d'activité ===== */
+.ov-gwrap{display:flex;flex-direction:column;align-items:center;gap:1px}
+.ov-gauge{display:block;width:100%;height:auto;overflow:visible}
+.ov-g-track{stroke:var(--line)}
+.ov-g-good{stroke:var(--good)}.ov-g-mid{stroke:var(--mid)}.ov-g-bad{stroke:var(--bad)}.ov-g-na{stroke:var(--line)}
+.ov-g-tgt{stroke:var(--ink);opacity:.72}
+.ov-g-val{font-weight:800;fill:var(--ink);font-variant-numeric:tabular-nums}
+.ov-g-tgood{fill:var(--good)}.ov-g-tmid{fill:var(--mid)}.ov-g-tbad{fill:var(--bad)}.ov-g-tna{fill:var(--muted)}
+.ov-glab{font-size:12px;color:var(--muted);text-align:center}
+.ov-gsub{font-size:12px;color:var(--ink);text-align:center;font-variant-numeric:tabular-nums}
+.ov-gsub.bad{color:var(--bad)}.ov-gsub.good{color:var(--good)}
+.ov-spark{display:block;width:100%;height:auto}
+.ov-spk{fill:var(--accent)}
+.ov-spk-low{opacity:.42}
+.ov-spk-base{stroke:var(--line);stroke-width:1}
+.ov-spk-ref{stroke:var(--muted);opacity:.8}
+.ov-spk-x{fill:var(--faint,var(--muted))}
+.ov-radar{display:block;width:100%;max-width:440px;height:auto;margin:0 auto;overflow:visible}
+.ov-rad-grid{stroke:var(--line);stroke-width:1}
+.ov-rad-tgt{stroke:var(--good);stroke-width:1.3;opacity:.85}
+.ov-rad-spoke{stroke:var(--line);stroke-width:1}
+.ov-rad-lab{fill:var(--muted)}
+.ov-rad-val{fill:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
+.ov-rad-val.good{fill:var(--good)}.ov-rad-val.mid{fill:var(--mid)}.ov-rad-val.bad{fill:var(--bad)}
+.ov-rad-area{fill:var(--accent);fill-opacity:.17;stroke:var(--accent);stroke-width:2}
+.ov-rad-dot{fill:var(--accent);stroke:var(--card);stroke-width:1.5;cursor:help}
+/* répartition des notes */
+.ov-rate{display:flex;flex-direction:column;gap:10px}
+.ov-rate-bar{display:flex;height:20px;border-radius:5px;overflow:hidden;background:var(--soft)}
+.ov-rate-seg{height:100%;min-width:2px;cursor:help}
+.ov-rate-exc{background:#157347}.ov-rate-sat{background:#4f9d3a}.ov-rate-imp{background:var(--mid)}.ov-rate-urg{background:var(--bad)}.ov-rate-na{background:#7d5ba6}
+.ov-rate-leg{display:flex;flex-direction:column;gap:3px}
+.ov-rate-lrow{display:grid;grid-template-columns:14px 1fr auto auto;gap:8px;align-items:center;font-size:12.5px;padding:1px 2px;border-radius:4px}
+.ov-rate-lrow:hover{background:var(--soft)}
+.ov-rate-sw{width:12px;height:12px;border-radius:3px}
+.ov-rate-ll{color:var(--ink)}
+.ov-rate-lp{font-weight:700;font-variant-numeric:tabular-nums}
+.ov-rate-ln{color:var(--muted);font-variant-numeric:tabular-nums;min-width:40px;text-align:right}
+/* bandeau de synthèse (hero) */
+.ov-hero{display:grid;grid-template-columns:230px 1fr;gap:20px;align-items:center}
+.ov-hero-g{display:flex;flex-direction:column;align-items:center;gap:2px}
+.ov-hero-gw{display:flex;flex-direction:column;align-items:center;cursor:pointer;width:100%}
+.ov-hero-gl{font-size:12px;color:var(--muted);text-align:center;margin-top:-2px}
+.ov-hero-gn{font-size:13px;color:var(--ink);text-align:center;font-weight:600}
+.ov-hero-ec{font-size:12.5px;text-align:center;font-weight:700;font-variant-numeric:tabular-nums}
+.ov-hero-ec.bad{color:var(--bad)}.ov-hero-ec.good{color:var(--good)}
+.ov-hero-figs{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.ov-hf{border:1px solid var(--line);border-radius:9px;padding:9px 12px;background:var(--card)}
+.ov-hf.ov-clk:hover{box-shadow:0 2px 10px rgba(18,28,45,.1);border-color:var(--accent)}
+.ov-hf.k-bad{border-left:3px solid var(--bad)}
+.ov-hf-v{font-size:24px;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums;color:var(--ink)}
+.ov-hf-v.bad{color:var(--bad)}
+.ov-hf-l{font-size:12px;color:var(--muted);margin-top:1px}
+.ov-hf-s{font-size:11.5px;color:var(--faint,var(--muted));margin-top:1px}
+@media(max-width:720px){.ov-hero{grid-template-columns:1fr}}
+/* cartes d'activité (rangée) */
+.ov-aclist{display:flex;flex-direction:column;gap:2px}
+.ov-acrow{display:grid;grid-template-columns:1fr 148px 210px;gap:16px;align-items:center;padding:10px 6px;border-top:1px solid var(--line)}
+.ov-acrow:first-child{border-top:0}
+.ov-acrow.ov-clk:hover{background:var(--soft)}
+.ov-ac-h{display:flex;align-items:center;gap:7px}
+.ov-ac-dot{width:11px;height:11px;border-radius:50%;flex:none}
+.ov-ac-name{font-weight:700;font-size:14px}
+.ov-ac-lab{font-size:12px;color:var(--muted);margin:1px 0 5px}
+.ov-ac-covn{font-size:13px;font-weight:600;color:var(--ink)}
+.ov-ac-covp{font-size:12.5px;margin-top:1px}
+.ov-ac-pc{font-weight:700;font-variant-numeric:tabular-nums}
+.ov-ac-pc.good{color:var(--good)}.ov-ac-pc.mid{color:var(--mid)}.ov-ac-pc.bad{color:var(--bad)}.ov-ac-pc.na{color:var(--muted)}
+.ov-ac-ec{font-weight:700;font-variant-numeric:tabular-nums}.ov-ac-ec.bad{color:var(--bad)}.ov-ac-ec.good{color:var(--good)}
+.ov-ac-sc{font-size:12.5px;margin-top:3px}
+.ov-ac-sv{font-weight:700;font-variant-numeric:tabular-nums}
+.ov-ac-sv.good{color:var(--good)}.ov-ac-sv.mid{color:var(--mid)}.ov-ac-sv.bad{color:var(--bad)}.ov-ac-sv.na{color:var(--muted)}
+.ov-ac-al{color:var(--bad);font-weight:600;margin-left:8px}
+.ov-ac-g{display:flex;justify-content:center}
+.ov-ac-s{display:flex;flex-direction:column;gap:2px}
+.ov-ac-stt{font-size:11px;color:var(--muted)}
+@media(max-width:720px){.ov-acrow{grid-template-columns:1fr;gap:8px}}
+/* alertes (synthèse) */
+.ov-alsum{display:flex;flex-direction:column;gap:3px;cursor:pointer}
+.ov-alrow{display:grid;grid-template-columns:110px 54px 1fr;gap:8px;align-items:center;font-size:13px;padding:3px 4px;border-radius:5px}
+.ov-alsum:hover .ov-alrow{background:transparent}
+.ov-alrow:hover{background:var(--soft)}
+.ov-aln{font-weight:800;font-size:16px;text-align:right;font-variant-numeric:tabular-nums}
+.ov-aln.bad{color:var(--bad)}
+.ov-alp{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+.ov-allink{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:8px;padding:8px 10px;border-radius:7px;background:var(--soft);font-size:13px;cursor:pointer}
+.ov-allink.bad{color:var(--bad);font-weight:600}
+.ov-allink:hover{box-shadow:0 1px 6px rgba(18,28,45,.1)}
+.ov-allink-go{color:var(--accent);font-weight:600;white-space:nowrap}
+/* onglet Activités : profil (radar · notes · jauges) */
+.ov-actprofile{display:grid;grid-template-columns:1.2fr 1fr 0.8fr;gap:22px;align-items:start}
+.ov-actprofile.ov-ap2{grid-template-columns:1fr 0.7fr}
+.ov-synth-t{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:6px;text-align:center}
+.ov-synth-rad{min-width:0}
+.ov-synth-g{display:flex;flex-direction:column;min-width:0}
+/* colonne des 2 jauges resserrée : paire compacte centrée, alignée en haut avec le radar et la répartition des notes */
+.ov-synth-gg{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:4px}
+.ov-synth-b{display:flex;flex-direction:column;align-items:center;width:100%;max-width:190px}
+/* la jauge ne s'étire plus à toute la colonne (sinon demi-anneau géant + grand vide) : taille fixée près de son viewBox */
+.ov-synth-b .ov-gauge{max-width:172px}
+.ov-synth-b .ov-glab{margin-top:1px}
+.ov-synth-b.ov-clk:hover{background:var(--soft);border-radius:8px}
+@media(max-width:860px){.ov-actprofile,.ov-actprofile.ov-ap2{grid-template-columns:1fr}}
+/* clôture facile des cas */
+.ov-cact{display:flex;gap:6px;flex-wrap:wrap}
+.ov-cact .btn{font-size:11.5px;padding:3px 9px}
+.btn.ov-close{background:var(--good);color:#fff;border-color:var(--good)}
+.btn.ov-close:hover{filter:brightness(1.06)}
+.btn.ov-nosuite{background:var(--card);color:var(--muted);border-color:var(--line)}
+.ov-closeform{display:flex;flex-direction:column;gap:8px}
+.ov-closeform label{display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--muted)}
+.ov-closeform textarea,.ov-closeform select,.ov-closeform input{font:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink);width:100%;box-sizing:border-box}
+.ov-closeform textarea{resize:vertical;min-height:70px}
+.ov-closeform .ov-cerr{color:var(--bad);font-size:12.5px}
+.ov-closeform .ov-crow{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media print{.ov-cact,.ov-allink-go{display:none!important}}

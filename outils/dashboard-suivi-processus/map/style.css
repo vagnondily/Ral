@@ -20,8 +20,8 @@
 .mapwrap svg.mapx-svg{height:min(600px,70vh);min-height:360px;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
 .mapwrap svg.mapx-svg.mapx-drag{cursor:grabbing}
 .mapx-svg .mk{cursor:pointer}
-.mapx-svg .region{cursor:pointer;stroke-opacity:.9}
-.mapx-svg .region:hover{stroke:var(--accent);stroke-width:1.6px}
+.mapx-svg .region{cursor:pointer;stroke:var(--line);stroke-width:.7px;stroke-opacity:.7;vector-effect:non-scaling-stroke}
+.mapx-svg .region:hover{stroke:var(--accent);stroke-width:1.6px;stroke-opacity:1}
 .mapx-lab{pointer-events:none}
 .mapx-lab text{font-size:10px;font-weight:500;letter-spacing:.02em;fill:var(--muted);stroke:var(--soft);stroke-width:2.5px;paint-order:stroke;stroke-linejoin:round;opacity:.9}
 .mapx-cn{font-size:10px;font-weight:700;fill:#fff;pointer-events:none;font-variant-numeric:tabular-nums;paint-order:stroke;stroke:rgba(0,0,0,.35);stroke-width:2px}

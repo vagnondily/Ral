@@ -126,9 +126,12 @@
       kpi(fmt(cnt('A')), 'Note A', GS.A + ' et plus', 'good', gradeTip('A', 'agent')), kpi(fmt(cnt('B')), 'Note B', GS.B + ' à ' + GS.A, null, gradeTip('B', 'agent')),
       kpi(fmt(cnt('C')), 'Note C', GS.C + ' à ' + GS.B, 'mid', gradeTip('C', 'agent')), kpi(fmt(cnt('D')), 'Note D', 'moins de ' + GS.C, 'bad', gradeTip('D', 'agent')),
       kpi(fmt(partial), 'Notes partielles', 'moins de ' + AGX_CRIT.length + ' critères', null, 'Agents notés sans tous les critères. Un critère non mesurable (durée sans heure d’ouverture, pas de question « Ne sait pas », site sans coordonnées, formulaire sans liste d’agents) ou calculé sur moins de ' + SMALL_N.min + ' fiches sort de la note ; son poids est réparti sur les autres. Le détail de chaque agent le précise.')]));
-    // durée des fiches
-    const SA = S.subs.filter(s => !s.sys_empty), DT = agXDurInfo(SA);
-    main.appendChild(agXCard('Durée des fiches', DT.info, [el('p', { class: 'hint', text: DT.line }), DT.U.meas ? histo(agXDurBins(DT.U), 'fiches') : null], 'wide agx-dur'));
+    // durée des fiches : rendue une seule fois, dans la sous-vue « Par activité » ; ici un simple renvoi (dédoublonnage)
+    const xref = el('p', { class: 'hint agx-xref' }, [el('span', { text: 'Durée des fiches (ouverture, finalisation) : ' })]);
+    const xb = el('button', { class: 'agx-xlink', type: 'button', text: 'voir « Par activité »' });
+    xb.addEventListener('click', () => agXQaGo('activite'));
+    xref.appendChild(xb);
+    main.appendChild(xref);
     // tableau des agents
     const bar = el('div', { class: 'pills' });
     const q = el('input', { type: 'search', placeholder: 'Rechercher un agent…', 'aria-label': 'Rechercher un agent' });
@@ -399,8 +402,8 @@
     return el('div', null, [el('div', { class: 'tw' }, t), gap !== null && gap >= 25 ? limitBox('Écart de ' + fmt(gap, 0) + ' points de taux d’alerte entre observateurs ayant chacun au moins ' + SMALL_N.low + ' visites. Prévoir une visite conjointe ou une contre-vérification avant la revue.') : null]);
   }
 
-  // ================================================================== ONGLET QUALITÉ DES DONNÉES
-  function agXRenderQuality(main) {
+  // ================================================================== SOUS-VUE « PAR ACTIVITÉ » (contrôles des fiches, durée, défauts des formulaires)
+  function agXRenderQualActivite(main) {
     const full = agXFullPeriod(), d = agXData();
     const subs = d.subs.filter(s => agXPass(s, full));
     const vis = V.filter(v => (F.act === 'ALL' || v.act === F.act) && (F.fo < 0 || v.fo === F.fo) && (F.region < 0 || v.region === F.region) && (F.district < 0 || v.district === F.district) && (F.org < 0 || v.org === F.org) && (F.imp < 0 || v.imp === F.imp) && (full || (!!v.date && v.month >= F.m0 && v.month <= F.m1)));
@@ -458,5 +461,34 @@
           { k: 3, t: 'Question « préciser »', fmt: r => r[3] || 'absente' }, { k: 4, t: 'Réponses « Autre »', num: 1, fmt: r => r[4] === null ? 'n.d.' : fmt(r[4]) },
           { k: 5, t: 'Précisées', num: 1, fmt: r => r[5] === null ? '–' : (r[4] ? agXPlain(fmt(r[5]) + '/' + fmt(r[4]), () => pct(r[5] / r[4] * 100) + ' des réponses « Autre » précisées') : fmt(r[5])) },
           { k: 6, t: 'Statut', fmt: r => el('span', { class: 'cell bg-' + (r[6].startsWith('Question') ? 'bad' : 'mid'), text: r[6] }) }], au, { sortK: 4 })], 'wide'));
+  }
+  // ================================================================== ONGLET « QUALITÉ & ACTEURS » : 3 sous-vues (fusion Qualité + Partenaires + Agents)
+  // Une seule page, trois vues de la même famille de mesures : Par activité · Par organisation · Par agent.
+  // « Durée des fiches » et la distribution A/B/C/D ne sont rendues qu'une fois (voir le dédoublonnage ci-dessus).
+  const AGX_QA_VIEWS = [['activite', 'Par activité'], ['organisation', 'Par organisation'], ['agent', 'Par agent']];
+  const AGX_QA_HEAD = {
+    activite: ['Qualité des données par activité', 'Contrôles des fiches, durée de saisie et défauts des formulaires — une ligne par activité.'],
+    organisation: ['Acteurs par organisation', 'Note de suivi des organisations de suivi (TPM) et conformité des partenaires de mise en œuvre.'],
+    agent: ['Acteurs par agent', 'Note de chaque agent de suivi : qualité des données et volume de visites.']
+  };
+  function agXQaSub() { const s = SESSION.qaSub; return AGX_QA_VIEWS.some(v => v[0] === s) ? s : 'activite'; }
+  function agXQaGo(sub) { if (SESSION.qaSub === sub) return; SESSION.qaSub = sub; closeDrawer(); render(); window.scrollTo(0, 0); }
+  function agXQaBar(cur) {
+    const bar = el('div', { class: 'pl-sub agx-sub-bar', role: 'tablist', 'aria-label': 'Vues Qualité & acteurs' });
+    AGX_QA_VIEWS.forEach(([k, l]) => {
+      const b = el('button', { type: 'button', role: 'tab', 'aria-selected': String(cur === k), class: cur === k ? 'on' : '', text: l });
+      b.addEventListener('click', () => agXQaGo(k));
+      bar.appendChild(b);
+    });
+    return bar;
+  }
+  function agXRenderQuality(main) {
+    const cur = agXQaSub();
+    main.appendChild(agXQaBar(cur));
+    const H = AGX_QA_HEAD[cur];
+    main.appendChild(el('div', { class: 'agx-vh' }, [el('h2', { class: 'agx-vh-t', text: H[0] }), el('p', { class: 'agx-vh-s', text: H[1] })]));
+    if (cur === 'organisation') agXRenderPartners(main);
+    else if (cur === 'agent') agXRenderAgents(main);
+    else agXRenderQualActivite(main);
   }
   // ================================================================== /LOT AGENTS

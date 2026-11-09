@@ -69,6 +69,16 @@
     if (MONTHS.length && (F.m0 !== MONTHS[0] || F.m1 !== MONTHS[MONTHS.length - 1])) p.push(monthLabel(F.m0) + ' → ' + monthLabel(F.m1));
     return p.length ? p.join(' · ') : 'aucun filtre (tout le fichier)';
   }
+  // ================================================================== NAVIGATION : familles d'onglets (table centrale, lue par buildTabs)
+  // clé d'onglet → famille. Les onglets ajoutés par d'autres lots (pilot, cases) sont classés ici sans les modifier ;
+  // une clé absente de la table tombe dans « Autres » (jamais perdue). buildTabs rend la barre groupée sur une ligne.
+  const TAB_FAMILIES = [
+    ['Synthèse & décision', ['pilot', 'overview', 'cases', 'map']],
+    ['Analyse', ['activity', 'quality']],
+    ['Terrain & plan', ['sites', 'rbm']],
+    ['Produire', ['report']],
+    ['Admin', ['data', 'method']]
+  ];
 
   // ================================================================== DÉTAIL D'UN CALCUL : tiroir latéral et blocs réutilisables
   // Chaque note affichée doit pouvoir s'ouvrir ici : valeur réelle · référence · n/N · formule · limites.

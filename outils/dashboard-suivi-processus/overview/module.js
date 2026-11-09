@@ -461,6 +461,154 @@
     });
   }
 
+  // ---------------------------------------------------------------- composants infographiques (jauge, sparkline, radar, notes)
+  // Réutilisables, préfixe ov, 100 % SVG via sv()/el() (CSP stricte). Chaque chiffre reste expliqué en infobulle.
+  function ovStatCls(v, target) { // couleur d'une valeur /100 contre une cible (seuils THR), null = non calculé
+    if (!ovNum(v)) return 'na';
+    const t = ovNum(target) ? target : THR.good; return v >= t ? 'good' : v >= THR.mid ? 'mid' : 'bad';
+  }
+  function ovArc(cx, cy, r, v0, v1) { // arc de demi-anneau, v dans [0,100] (0 = gauche, 100 = droite, par le haut)
+    const ang = v => Math.PI * (1 - Math.min(100, Math.max(0, v)) / 100);
+    const pt = v => [cx + r * Math.cos(ang(v)), cy - r * Math.sin(ang(v))];
+    const [x0, y0] = pt(v0), [x1, y1] = pt(v1), sweep = v1 > v0 ? 1 : 0;   // demi-anneau ≤ 180° : jamais de grand arc
+    return 'M' + x0.toFixed(2) + ' ' + y0.toFixed(2) + 'A' + r + ' ' + r + ' 0 0 ' + sweep + ' ' + x1.toFixed(2) + ' ' + y1.toFixed(2);
+  }
+  function ovGauge(value, opt) { // jauge radiale : demi-anneau, arc coloré à la valeur (plafonné 100), repère de cible, grand % au centre
+    opt = opt || {};
+    const size = opt.size || 168, W = size, H = Math.round(size * 0.60);
+    const cx = W / 2, cy = Math.round(H * 0.94), r = Math.round(size * 0.40), sw = Math.max(9, Math.round(size * 0.085));
+    const target = opt.target == null ? THR.good : opt.target;
+    const na = !!opt.na || !ovNum(value);
+    const v = na ? 0 : Math.min(100, Math.max(0, value));
+    const k = na ? 'na' : ovStatCls(value, target);
+    const svg = sv('svg', { viewBox: '0 0 ' + W + ' ' + H, class: 'ov-gauge', role: 'img', 'aria-label': (opt.label || 'Jauge') + ' : ' + (na ? 'non calculable' : pct(value, 1)) });
+    svg.appendChild(sv('path', { d: ovArc(cx, cy, r, 0, 100), fill: 'none', 'stroke-width': sw, 'stroke-linecap': 'round', class: 'ov-g-track' }));
+    if (!na && v > 0.2) svg.appendChild(sv('path', { d: ovArc(cx, cy, r, 0, v), fill: 'none', 'stroke-width': sw, 'stroke-linecap': 'round', class: 'ov-g-arc ov-g-' + k }));
+    if (ovNum(target) && target >= 0 && target <= 100) {
+      const ang = Math.PI * (1 - target / 100), c = Math.cos(ang), s = Math.sin(ang), r0 = r - sw / 2 - 1, r1 = r + sw / 2 + 2;
+      const tk = sv('line', { x1: (cx + r0 * c).toFixed(1), y1: (cy - r0 * s).toFixed(1), x2: (cx + r1 * c).toFixed(1), y2: (cy - r1 * s).toFixed(1), class: 'ov-g-tgt', 'stroke-width': 2.2 });
+      bindTip(tk, () => 'Cible ' + fmt(target) + ' %'); svg.appendChild(tk);
+    }
+    const tv = sv('text', { x: cx, y: cy - r * 0.16, 'text-anchor': 'middle', 'font-size': Math.round(r * 0.52), class: 'ov-g-val ov-g-t' + k });
+    tv.textContent = na ? 'n.d.' : pct(value, (value >= 99.95 || Number.isInteger(value)) ? 0 : (opt.d != null ? opt.d : 1));
+    svg.appendChild(tv);
+    const wrap = el('div', { class: 'ov-gwrap' }, [svg]);
+    if (opt.label) wrap.appendChild(el('div', { class: 'ov-glab', text: opt.label }));
+    if (opt.sub) wrap.appendChild(el('div', { class: 'ov-gsub' + (opt.subCls ? ' ' + opt.subCls : ''), text: opt.sub }));
+    return wrap;
+  }
+  function ovSpark(series, opt) { // mini-barres mensuelles ; barre creuse (atténuée) sous SMALL_N.low ; ligne de référence optionnelle
+    opt = opt || {};
+    const n = series.length, W = opt.w || 188, H = opt.h || 46, pb = opt.labels === false ? 3 : 11, pt = 4, pl = 2, pr = 2;
+    const svg = sv('svg', { viewBox: '0 0 ' + W + ' ' + H, class: 'ov-spark', role: 'img', 'aria-label': opt.aria || 'Tendance mensuelle' });
+    const max = Math.max(1, ...series.map(s => s.v || 0)), bw = (W - pl - pr) / Math.max(n, 1), bar = Math.max(2, Math.min(16, bw - 2));
+    series.forEach((s, i) => {
+      const h = (H - pt - pb) * (s.v || 0) / max, x = pl + i * bw + (bw - bar) / 2, y = H - pb - h;
+      const rect = sv('rect', { x: x.toFixed(1), y: y.toFixed(1), width: bar.toFixed(1), height: Math.max(0, h).toFixed(1), rx: 1.4, class: 'ov-spk' + (s.low ? ' ov-spk-low' : '') });
+      if (s.color) rect.style.fill = s.color;
+      bindTip(rect, () => (s.tip || (s.label + ' : ' + fmt(s.v) + (opt.unit ? ' ' + opt.unit : ''))) + (s.low ? '\neffectif faible (moins de ' + SMALL_N.low + ')' : ''));
+      svg.appendChild(rect);
+    });
+    svg.appendChild(sv('line', { x1: pl, x2: W - pr, y1: H - pb, y2: H - pb, class: 'ov-spk-base' }));
+    if (opt.ref != null && opt.refMax) { const y = H - pb - (H - pt - pb) * opt.ref / opt.refMax; svg.appendChild(sv('line', { x1: pl, x2: W - pr, y1: y.toFixed(1), y2: y.toFixed(1), class: 'ov-spk-ref', 'stroke-dasharray': '3 3' })); }
+    if (n && opt.labels !== false) {
+      const t0 = sv('text', { x: pl + 1, y: H - 2, 'text-anchor': 'start', 'font-size': 8, class: 'ov-spk-x' }); t0.textContent = series[0].label; svg.appendChild(t0);
+      if (n > 1) { const t1 = sv('text', { x: W - pr - 1, y: H - 2, 'text-anchor': 'end', 'font-size': 8, class: 'ov-spk-x' }); t1.textContent = series[n - 1].label; svg.appendChild(t1); }
+    }
+    return svg;
+  }
+  // libellé d'axe du radar coupé en 2 lignes équilibrées (mots entiers) : le domaine s'affiche EN ENTIER, jamais tronqué
+  function ovWrapLabel(s, maxCh) {
+    const t = String(s || '').trim(); if (t.length <= maxCh) return [t];
+    const w = t.split(/\s+/); if (w.length < 2) return [t];   // un seul mot (même long) : laissé entier, pas de coupure au milieu
+    let cut = 1, best = Infinity;
+    for (let i = 1; i < w.length; i++) { const a = w.slice(0, i).join(' ').length, b = w.slice(i).join(' ').length; const d = Math.abs(a - b) + 3 * Math.max(0, Math.max(a, b) - maxCh); if (d < best) { best = d; cut = i; } }
+    return [w.slice(0, cut).join(' '), w.slice(cut).join(' ')];
+  }
+  function ovRadar(axes, opt) { // profil radar : un axe par domaine, valeur /100, anneau de cible
+    opt = opt || {}; const K = axes.length; if (K < 3) return null;
+    const size = opt.size || 300, R = size * 0.27, pad = size * 0.047;
+    const fl = Math.max(9, Math.round(size * 0.036)), fv = Math.max(10, Math.round(size * 0.044)), lh = fl * 1.2, maxCh = 16;
+    // viewBox élargi (marges horizontale et verticale) : les libellés complets tiennent dedans, la SVG se met à l'échelle de la colonne, rien ne déborde
+    const W = Math.round(R * 2 + size * 0.44 * 2), H = Math.round(R * 2 + size * 0.20 * 2), cx = W / 2, cy = H / 2;
+    const target = opt.target == null ? THR.good : opt.target;
+    const svg = sv('svg', { viewBox: '0 0 ' + W + ' ' + H, class: 'ov-radar', role: 'img', 'aria-label': opt.aria || 'Profil des domaines' });
+    const ang = i => -Math.PI / 2 + i * 2 * Math.PI / K, pAt = (i, rad) => [cx + rad * Math.cos(ang(i)), cy + rad * Math.sin(ang(i))];
+    const ring = (rad, cls, dash) => { let d = ''; for (let i = 0; i <= K; i++) { const [x, y] = pAt(i % K, rad); d += (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1); } const p = sv('path', { d: d + 'Z', fill: 'none', class: cls }); if (dash) p.setAttribute('stroke-dasharray', dash); svg.appendChild(p); };
+    [25, 50, 75, 100].forEach(g => ring(R * g / 100, 'ov-rad-grid'));
+    ring(R * target / 100, 'ov-rad-tgt', '4 3');
+    axes.forEach((ax, i) => {
+      const [sx, sy] = pAt(i, R); svg.appendChild(sv('line', { x1: cx, y1: cy, x2: sx.toFixed(1), y2: sy.toFixed(1), class: 'ov-rad-spoke' }));
+      const co = Math.cos(ang(i)), si = Math.sin(ang(i)), pt = pAt(i, R + pad), lx = pt[0], lyTip = pt[1];
+      const anc = Math.abs(co) < 0.30 ? 'middle' : co > 0 ? 'start' : 'end';
+      const avail = anc === 'middle' ? 2 * Math.min(lx, W - lx) - 8 : anc === 'start' ? W - lx - 4 : lx - 4;
+      const lines = ovWrapLabel(ax.label, maxCh), bh = lines.length * lh, firstY = lyTip - (1 - si) / 2 * bh;   // bloc ancré selon la position (haut → vers le haut, bas → vers le bas, côté → centré)
+      lines.forEach((ln, k) => {
+        const at = { x: lx.toFixed(1), y: (firstY + k * lh).toFixed(1), 'text-anchor': anc, 'font-size': fl, class: 'ov-rad-lab' };
+        if (ln.length * fl * 0.56 > avail && avail > 12) { at.textLength = avail.toFixed(1); at.lengthAdjust = 'spacingAndGlyphs'; }   // sécurité : une ligne trop longue est condensée pour tenir, jamais coupée ni débordante
+        const t = sv('text', at); t.textContent = ln; svg.appendChild(t);
+      });
+      const t2 = sv('text', { x: lx.toFixed(1), y: (firstY + lines.length * lh).toFixed(1), 'text-anchor': anc, 'font-size': fv, class: 'ov-rad-val' + (ovNum(ax.value) ? ' ' + ovStatCls(ax.value, target) : '') }); t2.textContent = ovNum(ax.value) ? fmt(ax.value, 0) : 'n.d.'; svg.appendChild(t2);
+    });
+    let d = ''; axes.forEach((ax, i) => { const [x, y] = pAt(i, R * Math.min(100, Math.max(0, ax.value || 0)) / 100); d += (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1); });
+    svg.appendChild(sv('path', { d: d + 'Z', class: 'ov-rad-area' }));
+    axes.forEach((ax, i) => { const [x, y] = pAt(i, R * Math.min(100, Math.max(0, ax.value || 0)) / 100); const c = sv('circle', { cx: x.toFixed(1), cy: y.toFixed(1), r: 3, class: 'ov-rad-dot' }); bindTip(c, () => ax.label + ' : ' + fmt(ax.value, 1) + ' / 100 sur ' + nOf(ax.n, ax.N || ax.n, 'visites')); svg.appendChild(c); });
+    return svg;
+  }
+  const OV_RATE_DEF = [
+    { k: 'exc', label: 'Excellent', cls: 'exc', hint: 'score 90 ou plus' },
+    { k: 'sat', label: 'Satisfaisant', cls: 'sat', hint: THR.good + ' à 90' },
+    { k: 'imp', label: 'À améliorer', cls: 'imp', hint: THR.mid + ' à ' + THR.good },
+    { k: 'urg', label: 'Action urgente', cls: 'urg', hint: 'score sous ' + THR.mid },
+    { k: 'na', label: 'Non évalué', cls: 'na', hint: 'score non calculé' }
+  ];
+  function ovRatingBins(vs) {
+    const c = { exc: 0, sat: 0, imp: 0, urg: 0, na: 0 };
+    vs.forEach(v => { if (!ovNum(v.score)) { c.na++; return; } const s = v.score; if (s >= 90) c.exc++; else if (s >= THR.good) c.sat++; else if (s >= THR.mid) c.imp++; else c.urg++; });
+    return OV_RATE_DEF.map(d => Object.assign({}, d, { n: c[d.k] }));
+  }
+  function ovRating(bins, opt) { // distribution des notes : barre horizontale empilée + légende chiffrée
+    opt = opt || {}; const N = bins.reduce((s, b) => s + b.n, 0);
+    const barbox = el('div', { class: 'ov-rate-bar', role: 'img', 'aria-label': 'Répartition des notes' });
+    bins.forEach(b => { if (!b.n) return; const seg = el('div', { class: 'ov-rate-seg ov-rate-' + b.cls }); seg.style.width = (b.n / Math.max(1, N) * 100) + '%'; bindTip(seg, () => b.label + ' : ' + nOf(b.n, N, 'visites') + ' — ' + b.hint); barbox.appendChild(seg); });
+    const leg = el('div', { class: 'ov-rate-leg' }, bins.map(b => { const row = el('div', { class: 'ov-rate-lrow' }, [el('span', { class: 'ov-rate-sw ov-rate-' + b.cls }), el('span', { class: 'ov-rate-ll', text: b.label }), el('span', { class: 'ov-rate-lp', text: N ? pct(b.n / N * 100, 1) : '–' }), el('span', { class: 'ov-rate-ln', text: fmt(b.n) })]); bindTip(row, () => b.label + ' (' + b.hint + ') : ' + nOf(b.n, N, 'visites')); return row; }));
+    const box = el('div', { class: 'ov-rate' }, [barbox, leg]);
+    if (opt.open) ovClickable(box, opt.open, 'Répartition des notes');
+    return box;
+  }
+  // Série mensuelle de visites pour une activité (sparkline)
+  function ovActMonthly(a, ok, months) {
+    return months.map(m => { const n = ok.filter(v => v.act === a && v.month === m).length; return { label: monthLabel(m), v: n, low: n > 0 && n < SMALL_N.low, color: ACT_COLOR[a], tip: ACT[a].short + ' · ' + monthLabel(m) + ' : ' + fmt(n) + ' visites' }; });
+  }
+  // Rangée « carte d'activité » (vue d'ensemble) : identité + couverture + jauge + sparkline, à la manière de la maquette
+  function ovActRow(p, ok, months) {
+    const a = p.a, cp = p.cp, comp = coverageComputable(a, cp) && !cp.outOfYear;
+    const covPct = comp && cp.planned ? cp.visited / cp.planned * 100 : null;
+    const ecart = comp && cp.planned ? cp.visited - Math.round(THR.good / 100 * cp.planned) : null;
+    const dot = el('span', { class: 'ov-ac-dot' }); dot.style.background = ACT_COLOR[a] || '#888';
+    const name = el('div', { class: 'ov-ac-id' }, [el('div', { class: 'ov-ac-h' }, [dot, el('span', { class: 'ov-ac-name', text: ACT[a].short })]), el('div', { class: 'ov-ac-lab', text: ACT[a].label })]);
+    const scoreK = nStatus(p.st.n) === 'ok' ? cls(p.st.mean) : 'na';
+    const covLine = el('div', { class: 'ov-ac-cov' }, [
+      el('div', { class: 'ov-ac-covn', text: comp ? fmt(cp.visited) + ' / ' + fmt(cp.planned) + ' sites suivis' : 'couverture : base trop faible' }),
+      comp ? el('div', { class: 'ov-ac-covp' }, [el('span', { class: 'ov-ac-pc ' + ovStatCls(covPct, THR.good), text: pct(covPct, 1) }), el('span', { class: 'muted', text: ' couverture · cible ' + THR.good + ' %' }), ecart != null ? el('span', { class: 'ov-ac-ec ' + (ecart < 0 ? 'bad' : 'good'), text: ' (' + (ecart >= 0 ? '+' : '') + fmt(ecart) + ')' }) : null])
+        : el('div', { class: 'ov-ac-covp muted', text: 'le plan liste ' + fmt(cp.planned) + ' site(s) pour ' + fmt(sitesFollowed(a)) + ' suivis' }),
+      el('div', { class: 'ov-ac-sc' }, [el('span', { class: 'muted', text: 'score ' }), el('span', { class: 'ov-ac-sv ' + scoreK, text: p.st.n ? fmt(p.st.mean, 1) : '–' }), el('span', { class: 'muted', text: ' / 100' }), p.T.t1 ? el('span', { class: 'ov-ac-al', text: fmt(p.T.t1) + ' grave' + (p.T.t1 > 1 ? 's' : '') }) : null])
+    ]);
+    const gauge = ovGauge(covPct, { target: THR.good, size: 128, na: !comp });
+    bindTip(gauge, () => comp ? ACT[a].short + ' couverture du plan : ' + ovCovTxt(cp) + '\nCible MMR ' + THR.good + ' %' + (ecart != null ? ' — ' + (ecart >= 0 ? 'atteinte (+' + fmt(ecart) + ' sites)' : fmt(ecart) + ' sites sous la cible') : '') : ACT[a].short + ' : couverture non calculable (plan ' + fmt(cp.planned) + ' / ' + fmt(sitesFollowed(a)) + ' suivis)');
+    const spark = ovSpark(ovActMonthly(a, ok, months), { w: 196, h: 48, unit: 'visites', aria: ACT[a].short + ' visites par mois' });
+    const row = el('div', { class: 'ov-acrow' }, [el('div', { class: 'ov-ac-left' }, [name, covLine]), el('div', { class: 'ov-ac-g' }, [gauge]),
+      el('div', { class: 'ov-ac-s' }, [el('div', { class: 'ov-ac-stt', text: 'Visites par mois' }), spark])]);
+    ovClickable(row, () => ovScoreDrawer(a, p.x), ACT[a].short);
+    return row;
+  }
+  // Bloc chiffre cliquable du bandeau de synthèse (ouvre le tiroir de détail existant)
+  function ovHeroFig(o) {
+    const box = el('div', { class: 'ov-hf' + (o.c ? ' k-' + o.c : '') }, [el('div', { class: 'ov-hf-v' + (o.c ? ' ' + o.c : ''), text: o.v }), el('div', { class: 'ov-hf-l', text: o.l }), o.s ? el('div', { class: 'ov-hf-s', text: o.s }) : null]);
+    if (o.tip) bindTip(box, () => o.tip);
+    return o.open ? ovClickable(box, o.open, o.l) : box;
+  }
+
   // ---------------------------------------------------------------- VUE D'ENSEMBLE
   function ovScoreTile(perAct, ok) {
     const box = el('div', { class: 'kpi ov-tile ov-wtile' }, [el('div', { class: 'kh' }, [el('div', { class: 'l', text: 'Score par activité' }), infoBtn('Score de conformité sur 100 : moyenne des visites. Référence ' + THR.good + ', seuil interne à valider. Toutes activités confondues : ' + fmt(mean(ok.map(v => v.score)), 1) + ', non comparable car les questionnaires diffèrent. Survolez une activité pour la médiane et le nombre de visites, cliquez pour le détail.')])]);
@@ -515,7 +663,11 @@
     if (CUR !== D) CUR.caseLog = D.caseLog;
   }
   function ovSetCase(key, patch) {
-    requireAdmin(() => {
+    // Clôture des cas SANS mot de passe (retour utilisateur) : l'explication reste obligatoire (ovCloseCaseDrawer),
+    // l'auteur (SESSION.by) et la date partent au journal. Les autres écritures du fichier (exports du journal,
+    // paramétrage…) gardent requireAdmin ; seules les actions de cas s'en passent. Écriture + re-rendu synchrones :
+    // les compteurs (Ouverts/Clos/En retard/Taux, « cas graves à transmettre ») suivent aussitôt le store, source unique.
+    {
       if (!D.cases || typeof D.cases !== 'object') D.cases = {};
       const prev = (D.cases[key] && typeof D.cases[key] === 'object') ? D.cases[key] : {}, from = ovCaseS(prev);
       const o = Object.assign({}, prev, patch);
@@ -530,14 +682,17 @@
       if (ovStClosed(o.s) && !ovDay(o.closeAt)) o.closeAt = localDay();   // date de clôture par défaut = aujourd’hui
       o.at = localDay(); o.by = String(SESSION.by || '—').slice(0, 80);
       delete o.c;   // ancien champ « commentaire » fusionné dans « action »
+      const note = patch._note ? ovClean(patch._note, 120) : '';   // explication passée au journal (ex. motif de clôture) — non stockée dans le cas
+      delete o._note;
       const empty = !o.s && !o.action && !o.res && !o.canal && !o.resp && !o.verif && !o.closeAt && !o.verifAt;
       if (empty) delete D.cases[key]; else D.cases[key] = o;
       if (CUR !== D) CUR.cases = D.cases;
       const to = empty ? 0 : o.s;
-      if (from !== to) ovLogPush(key, OV_CASE_ST[from], OV_CASE_ST[to], (to === 1 && o.canal) ? 'canal ' + o.canal : (to === 4 && o.verif) ? 'vérification ' + o.verif : '');
+      if (from !== to) ovLogPush(key, OV_CASE_ST[from], OV_CASE_ST[to], note || ((to === 1 && o.canal) ? 'canal ' + o.canal : (to === 4 && o.verif) ? 'vérification ' + o.verif : ''));
+      else if (note) ovLogPush(key, OV_CASE_ST[from], OV_CASE_ST[to], note);
       SESSION.dirty = true;
       if (TAB === 'cases') { render(); if (OV_CASE_OPEN === key) { const c = ovCaseResolve(key); if (c) ovCaseDrawer(c); } } else render();
-    });
+    }
   }
   function ovParseOrphan(key) {
     const p = String(key).split('|'); if (p.length < 4) return null;
@@ -587,10 +742,10 @@
     const vd = el('input', { type: 'date', 'aria-label': 'Date de vérification' }); vd.value = ovDay(o.verifAt); vd.addEventListener('change', () => ovSetCase(key, { verifAt: vd.value }));
     const quick = el('div', { class: 'ov-exp ov-cq' }, [
       s < 1 ? ovBtn('Transmettre', () => ovSetCase(key, { s: 1 }), 'sm on') : null,
-      !ovStClosed(s) ? ovBtn('Clôturer', () => ovSetCase(key, { s: 3 }), 'sm') : null,
+      !ovStDone(s) ? ovBtn('Clôturer', () => ovCloseCaseDrawer(c, 3), 'sm ov-close') : null,
       s === 3 ? ovBtn('Marquer vérifié', () => ovSetCase(key, { s: 4, verif: 'oui' }), 'sm') : null,
-      s === 0 ? ovBtn('Sans suite', () => ovSetCase(key, { s: 5 }), 'sm') : null,
-      s !== 0 ? ovBtn('Rouvrir', () => ovSetCase(key, { s: 0 }), 'sm') : null
+      s === 0 ? ovBtn('Sans suite', () => ovCloseCaseDrawer(c, 5), 'sm ov-nosuite') : null,
+      ovStDone(s) ? ovBtn('Rouvrir', () => ovReopenCase(c), 'sm') : null
     ].filter(Boolean));
     add(wrap, [quick, line('Statut', stSel), line('Canal', caSel), line('Responsable', reSel), line('Action / décision', ac), line('Résolution', rs), line('Date de clôture', cd), el('div', { class: 'ov-cfl2' }, [line('Vérification', vf), line('Date de vérification', vd)])]);
     return [wrap, limitBox('Pas de nom, de téléphone ni de donnée personnelle de bénéficiaire, et aucune description d’allégation d’abus : indiquez le canal, le rôle responsable et la décision. Les emails et numéros saisis sont retirés ; 500 caractères au plus.', 'warn')];
@@ -599,7 +754,7 @@
     OV_CASE_OPEN = c.key;
     const S = ovCaseStore(), o = (S[c.key] && typeof S[c.key] === 'object') ? S[c.key] : {}, s = ovCaseS(o);
     const act = c.v ? c.v.act : c.act, q = D.riskQ[act + '|' + c.code] || {}, d = ovTierDef(c.tier);
-    const kids = [el('div', { class: 'ov-cd-head' }, [ovCaseStatusBadge(s), ovChip(c.tier), el('span', { class: 'muted', text: 'relevé le ' + dFrUI(c.date) + ' · ' + (c.date ? fmt(ovAge(c.date)) + ' j' : 'date inconnue') })])];
+    const kids = [el('div', { class: 'ov-cd-head' }, [ovCaseStatusBadge(s), ovChip(c.tier), el('span', { class: 'muted', text: 'relevé le ' + dFrUI(c.date) + ' · ' + (c.date ? fmt(ovAge(c.date)) + ' j' : 'date inconnue') }), ovCaseActionsCell(c, s)])];
     if (!c.present) kids.push(limitBox('Visite absente de la dernière extraction : les détails viennent du suivi enregistré ; l’historique est conservé.', 'warn'));
     const vdet = [];
     if (c.v) {
@@ -623,6 +778,50 @@
     openDrawer(ovRiskLabel(act, c.code, c.ri) + ' – ' + (ACT[act] ? ACT[act].short : act), ovGravLabel(c.tier) + ' · suivi de la clôture', kids);
   }
   const ovGravLabel = t => t === 1 ? 'Alerte grave' : 'Alerte à vérifier';
+  // Clôture en un geste, avec explication obligatoire : l'explication et l'auteur vont au journal (append-only) et à la résolution.
+  function ovCloseCaseDrawer(c, preset) {
+    const key = c.key, S = ovCaseStore(), o = (S[key] && typeof S[key] === 'object') ? S[key] : {};
+    const act = c.v ? c.v.act : c.act;
+    const err = el('div', { class: 'ov-cerr' });
+    const expl = el('textarea', { 'aria-label': 'Explication de la clôture', placeholder: 'Pourquoi et comment le cas est résolu : vérification faite, décision prise, suite donnée. Sans nom ni donnée personnelle.' });
+    expl.value = o.res ? ovClean(o.res, 500) : ''; expl.maxLength = 500; expl.rows = 4;
+    const stSel = el('select', { 'aria-label': 'Statut final' });
+    [['3', 'Clos (résolu)'], ['5', 'Sans suite']].forEach(([v, t]) => { const op = el('option', { value: v, text: t }); if (String(preset || (ovCaseS(o) === 5 ? 5 : 3)) === v) op.selected = true; stSel.appendChild(op); });
+    const dt = el('input', { type: 'date', 'aria-label': 'Date de clôture' }); dt.value = ovDay(o.closeAt) || localDay();
+    const resp = el('select', { 'aria-label': 'Responsable' }); OV_RESP.forEach(x => { const op = el('option', { value: x, text: x === '' ? '(responsable, facultatif)' : x }); if ((o.resp || '') === x) op.selected = true; resp.appendChild(op); });
+    const who = el('input', { type: 'text', 'aria-label': 'Votre nom (facultatif)', placeholder: 'Votre nom (facultatif) — enregistré au journal', maxLength: 60 }); who.value = SESSION.by || '';
+    const go = ovBtn('Enregistrer la clôture', () => {
+      const txt = ovClean(expl.value, 500);
+      if (txt.length < 4) { err.textContent = 'Indiquez en quelques mots pourquoi et comment le cas est résolu : la clôture n’est pas enregistrée sans explication.'; expl.focus(); return; }
+      const nm = who.value.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 60); if (nm) SESSION.by = nm;   // auteur enregistré au journal (sinon « — »)
+      OV_CASE_OPEN = null;
+      ovSetCase(key, { s: +stSel.value, res: txt, closeAt: dt.value, resp: resp.value, _note: (stSel.value === '5' ? 'Classé sans suite : ' : 'Clôturé : ') + txt });
+      closeDrawer();
+    }, 'on');
+    const form = el('div', { class: 'ov-closeform' }, [
+      el('label', null, [el('span', { text: 'Explication (obligatoire)' }), expl]),
+      el('div', { class: 'ov-crow' }, [el('label', null, [el('span', { text: 'Statut final' }), stSel]), el('label', null, [el('span', { text: 'Date de clôture' }), dt])]),
+      el('div', { class: 'ov-crow' }, [el('label', null, [el('span', { text: 'Responsable (facultatif)' }), resp]), el('label', null, [el('span', { text: 'Votre nom (facultatif)' }), who])]),
+      err,
+      el('div', { class: 'ov-exp' }, [go, ovBtn('Annuler', () => { if (OV_CASE_OPEN === key) { const cc = ovCaseResolve(key); closeDrawer(); if (cc) ovCaseDrawer(cc); } else closeDrawer(); })])
+    ]);
+    openDrawer('Clôturer le cas', ovRiskLabel(act, c.code, c.ri) + ' – ' + (ACT[act] ? ACT[act].short : act) + ' · ' + (dFrUI(c.date) || 'date inconnue'), [
+      limitBox('Pas de nom, de téléphone ni de donnée personnelle de bénéficiaire, et aucune description d’allégation d’abus : décrivez la vérification et la décision. 500 caractères au plus ; emails et numéros retirés.', 'warn'),
+      form
+    ]);
+  }
+  function ovReopenCase(c) {
+    const reason = window.prompt('Rouvrir ce cas. Motif de la réouverture (obligatoire) :', '');
+    if (reason === null) return; const txt = ovClean(reason, 120);
+    if (txt.length < 3) { window.alert('Réouverture annulée : indiquez un motif.'); return; }
+    OV_CASE_OPEN = null; ovSetCase(c.key, { s: 0, _note: 'Rouvert : ' + txt });
+  }
+  function ovCaseActionsCell(c, s) {   // boutons de clôture en 1 geste, sur la ligne ET dans le tiroir
+    const kids = [];
+    if (ovStOpen(s)) { kids.push(ovBtn('Clôturer', () => ovCloseCaseDrawer(c, 3), 'sm ov-close')); kids.push(ovBtn('Sans suite', () => ovCloseCaseDrawer(c, 5), 'sm ov-nosuite')); }
+    else { kids.push(ovBtn('Rouvrir', () => ovReopenCase(c), 'sm')); }
+    return el('div', { class: 'ov-cact' }, kids);
+  }
   function ovRenderCases(main) {
     const S = ovCaseStore();
     const Lf = ovCaseList(fv(v => v.valid)); Lf.forEach(c => { c.present = true; c.date = c.v.date; c.act = c.v.act; });
@@ -635,10 +834,12 @@
     const lateC = Lf.filter(c => ovStOpen(stOf(c)) && ovAge(c.date) > OV_OLD_DAYS);
     const lateKeys = new Set(lateT.concat(lateC).map(c => c.key)), late = lateKeys.size;
     const md = ovCaseMedianDelay(Lf, S);
+    const curMonth = OV_NOW.slice(0, 7), closedMonth = done.filter(c => ovCloseDay(S[c.key]).slice(0, 7) === curMonth);
     const byTier = arr => fmt(arr.filter(c => c.tier === 1).length) + ' graves, ' + fmt(arr.filter(c => c.tier === 2).length) + ' à vérifier';
     main.appendChild(el('div', { class: 'kpis' }, [
       ovTile({ l: 'Ouverts', v: fmt(open.length), c: open.length ? 'mid' : null, s: 'sur ' + fmt(tot) + ' cas', i: 'Cas non clos (ouvert, transmis ou en cours) : ' + nOf(open.length, tot, 'cas') + '. ' + byTier(open) + '. ' + ovALERT_TIERS.source + '.' }),
       ovTile({ l: 'Clos', v: fmt(closed.length), c: closed.length ? 'good' : null, s: sansSuite.length ? '+ ' + fmt(sansSuite.length) + ' sans suite' : 'sur ' + fmt(tot) + ' cas', i: 'Cas clos ou vérifiés : ' + nOf(closed.length, tot, 'cas') + '. Classés sans suite : ' + fmt(sansSuite.length) + '. ' + byTier(closed) + '.' }),
+      ovTile({ l: 'Clos ce mois', v: fmt(closedMonth.length), c: closedMonth.length ? 'good' : null, s: monthLabel(curMonth), i: 'Cas clos, vérifiés ou classés sans suite dont la date de clôture tombe en ' + monthLabel(curMonth) + ' : ' + fmt(closedMonth.length) + '. ' + byTier(closedMonth) + '.' }),
       ovTile({ l: 'En retard', v: fmt(late), c: late ? 'bad' : null, s: 'à traiter', i: 'Alerte grave non transmise après ' + OV_SLA_T + ' jours : ' + fmt(lateT.length) + '. Cas non clos de plus de ' + OV_OLD_DAYS + ' jours : ' + fmt(lateC.length) + '. Total sans doublon : ' + nOf(late, tot, 'cas') + '.' }),
       ovTile({ l: 'Délai médian de clôture', v: md.n ? fmt(md.med, 0) + ' j' : 'n.c.', c: null, s: md.n ? 'sur ' + fmt(md.n) + ' cas clos' : 'aucun cas clos', i: md.n ? 'Médiane des jours entre la date de la visite (ouverture) et la date de clôture, sur ' + nOf(md.n, tot, 'cas clos') + '.' : 'Aucun cas clos dans les filtres : délai non calculable.' }),
       ovTile({ l: 'Taux de clôture', v: tot ? pct(done.length / tot * 100, 0) : '–', s: fmt(done.length) + '/' + fmt(tot), i: 'Cas clos, vérifiés ou classés sans suite ÷ total : ' + nOf(done.length, tot, 'cas') + '. ' + byTier(done) + '.' })
@@ -670,7 +871,8 @@
       { k: 'al', t: 'Alerte', fmt: c => el('div', null, [ovChip(c.tier), ' ' + ovRiskLabel(c.v.act, c.code, c.ri)]), sortVal: c => ovRiskLabel(c.v.act, c.code, c.ri) },
       { k: 'st', t: 'Statut', fmt: c => ovCaseStatusBadge(stOf(c)), sortVal: c => stOf(c) },
       { k: 'resp', t: 'Responsable', fmt: c => (S[c.key] || {}).resp || '–', sortVal: c => (S[c.key] || {}).resp || '' },
-      { k: 'ac', t: 'Dernière action', fmt: c => { const o = S[c.key] || {}, a = ovCaseAction(o); if (!a) return el('span', { class: 'muted', text: '–' }); const sp = el('span', { class: 'ov-trunc', text: a.length > 48 ? a.slice(0, 47) + '…' : a }); bindTip(sp, () => a + (o.at ? '\nmis à jour le ' + dFrUI(o.at) + ' · ' + (o.by || '—') : '')); return sp; }, sortVal: c => ovCaseAction(S[c.key] || {}) }
+      { k: 'ac', t: 'Dernière action', fmt: c => { const o = S[c.key] || {}, a = ovCaseAction(o); if (!a) return el('span', { class: 'muted', text: '–' }); const sp = el('span', { class: 'ov-trunc', text: a.length > 48 ? a.slice(0, 47) + '…' : a }); bindTip(sp, () => a + (o.at ? '\nmis à jour le ' + dFrUI(o.at) + ' · ' + (o.by || '—') : '')); return sp; }, sortVal: c => ovCaseAction(S[c.key] || {}) },
+      { k: 'do', t: '', fmt: c => ovCaseActionsCell(c, stOf(c)) }
     ];
     const lead = fmt(rows.length) + (rows.length > 1 ? ' cas' : ' cas') + (rows.length !== tot ? ' sur ' + fmt(tot) : '');
     main.appendChild(ovCard('Cas à suivre', 'Un cas = une visite exploitable et une alerte grave ou à vérifier. Activité, période et zone se règlent dans la barre de filtres en haut. Cliquez une ligne pour le détail et le suivi. ' + ovALERT_TIERS.source + '.', [
@@ -699,20 +901,38 @@
     const covF = ovCovCtx(ok), cov = covF(F.act, F.region), Sx = ovSites(ok), AG = ovAgents(ok), FI = ovFiches(ok), EX = ovExclusions(bad), T = ovTierCounts(ok);
     const acts = F.act === 'ALL' ? ACTS : [F.act];
     const perAct = acts.map(a => { const x = ok.filter(v => v.act === a); return { a, x, n: x.length, st: ovScoreStats(x), cp: covF(a, F.region), T: ovTierCounts(x) }; }).filter(p => p.n);
-    main.appendChild(el('div', { class: 'kpis' }, [
-      ovTile({ l: 'Visites', v: fmt(ok.length), s: 'sur ' + fmt(all.length), i: 'Visites exploitables : ' + fmt(FI.valid) + ' fiches. Écartées : ' + fmt(bad.length) + (bad.length ? ' (' + ovExclText(EX) + ')' : '') + '. Une visite regroupe les fiches d’une même activité, d’un même site et d’un même jour.', open: () => ovVisitsDrawer(ok, all, bad) }),
-      ovTile({ l: 'Sites suivis', v: fmt(Sx.ident), s: 'dont ' + fmt(Sx.inPlan) + ' au plan', i: 'Sites comptés par leur code. À part : ' + fmt(Sx.off) + ' sites saisis hors liste et ' + fmt(Sx.noneVisits) + ' visites sans site.', open: () => ovSitesDrawer(ok) }),
-      ovTile({ l: 'Couverture du plan', v: cov.planned && !cov.outOfYear ? pct(cov.visited / cov.planned * 100, 1) : 'n.c.', s: cov.planned ? fmt(cov.visited) + '/' + fmt(cov.planned) + ' sites' : null, i: (typeof covDefinition === 'function' ? covDefinition() + ' ' : '') + 'Pas de cible définie, donc pas de couleur.', open: () => ovCovDrawer(perAct, cov) }),
-      ovTile({ l: 'Agents', v: fmt(AG.n), s: AG.noName ? '+ ' + fmt(AG.noName) + ' visite sans nom' : null, i: 'Noms d’agents harmonisés ayant au moins une visite exploitable.', open: () => ovAgentsDrawer(ok) })
-    ]));
-    main.appendChild(el('div', { class: 'ov-tiles' }, [ovScoreTile(perAct, ok), ovTierTile(ok, T), ovCasesTile(ok)]));
     const months = MONTHS.filter(m => m >= F.m0 && m <= F.m1), pm = ovPartialMonthNote(months);
+    const st = ovScoreStats(ok);
+    // 1. Bandeau de synthèse : jauge globale de couverture + chiffres clés (chaque bloc ouvre son tiroir)
+    const comp = cov.planned && !cov.outOfYear, covPct = comp ? cov.visited / cov.planned * 100 : null;
+    const ecart = comp ? cov.visited - Math.round(THR.good / 100 * cov.planned) : null;
+    const gauge = ovGauge(covPct, { target: THR.good, size: 196, na: !comp });
+    bindTip(gauge, () => comp ? 'Couverture du plan ' + planYearUI() + ' : ' + ovCovTxt(cov) + '\nCible MMR ' + THR.good + ' %' : 'Couverture non calculable sur ce périmètre');
+    const gcol = el('div', { class: 'ov-hero-g' }, [
+      ovClickable(el('div', { class: 'ov-hero-gw' }, [gauge, el('div', { class: 'ov-hero-gl', text: 'Couverture du plan ' + planYearUI() })]), () => ovCovDrawer(perAct, cov), 'Couverture du plan'),
+      el('div', { class: 'ov-hero-gn', text: comp ? fmt(cov.visited) + ' sites suivis sur ' + fmt(cov.planned) + ' actifs' : 'plan à compléter' }),
+      ecart != null ? el('div', { class: 'ov-hero-ec ' + (ecart < 0 ? 'bad' : 'good'), text: ecart < 0 ? fmt(ecart) + ' sites vs cible MMR (' + THR.good + ' %)' : 'cible atteinte (+' + fmt(ecart) + ' sites)' }) : null
+    ]);
+    const L = ovCaseList(ok), CS = ovCaseStore(), open1 = L.filter(c => c.tier === 1 && ovCaseS(CS[c.key]) === 0);
+    const figs = el('div', { class: 'ov-hero-figs' }, [
+      ovHeroFig({ v: fmt(ok.length), l: 'visites exploitables', s: 'sur ' + fmt(all.length) + ' · ' + fmt(FI.valid) + ' fiches', tip: 'Écartées : ' + fmt(bad.length) + (bad.length ? ' (' + ovExclText(EX) + ')' : '') + '. Une visite = fiches d’une même activité, d’un même site et d’un même jour.', open: () => ovVisitsDrawer(ok, all, bad) }),
+      ovHeroFig({ v: fmt(Sx.ident), l: 'sites suivis', s: 'dont ' + fmt(Sx.inPlan) + ' au plan', tip: 'Sites comptés par leur code. À part : ' + fmt(Sx.off) + ' hors liste, ' + fmt(Sx.noneVisits) + ' visites sans site.', open: () => ovSitesDrawer(ok) }),
+      ovHeroFig({ v: fmt(st.mean, 1), l: 'score global / 100', s: 'médiane ' + fmt(st.med, 1) + ' · non comparable', tip: 'Moyenne des visites exploitables, questionnaires mélangés : à ne pas comparer d’une activité à l’autre. Référence interne ' + THR.good + '.', open: () => ovScoreDrawer(null, ok) }),
+      ovHeroFig({ v: fmt(open1.length), l: 'cas graves à transmettre', c: open1.length ? 'bad' : null, s: fmt(L.length) + ' cas en tout', tip: 'Alertes graves encore ouvertes (non transmises). Le suivi de clôture est dans l’onglet Cas à suivre.', open: ovGoCases }),
+      ovHeroFig({ v: fmt(AG.n), l: 'agents de suivi', s: AG.noName ? '+ ' + fmt(AG.noName) + ' sans nom' : null, tip: 'Noms d’agents harmonisés ayant au moins une visite exploitable.', open: () => ovAgentsDrawer(ok) })
+    ]);
+    main.appendChild(ovCard('Couverture du suivi', 'Sites actifs du plan ' + planYearUI() + ' vus au moins une fois, filtres appliqués. La cible ' + THR.good + ' % est la fréquence attendue du MMR : aucune cible de couverture n’est validée, la jauge n’est donc qu’un repère. ' + ovCovNotes().join(' '), [el('div', { class: 'ov-hero' }, [gcol, figs])], 'wide'));
+    // 2. Par activité : une carte par activité (identité, couverture, jauge, sparkline)
+    main.appendChild(ovCard('Par activité', 'Couverture du plan et score de chaque activité, dans l’ordre fixe. Cliquez une ligne pour le détail du score. ' + ovCovNotes().join(' '), [el('div', { class: 'ov-aclist' }, perAct.map(p => ovActRow(p, ok, months)))], 'wide'));
+    // 3. Alertes & notes
+    const alChips = ovClickable(el('div', { class: 'ov-alsum' }, [[1, T.t1], [2, T.t2], [3, T.t3], ['c', T.c]].map(([t, n]) => el('div', { class: 'ov-alrow' }, [ovChip(t), el('span', { class: 'ov-aln' + (t === 1 && n ? ' bad' : ''), text: fmt(n) }), el('span', { class: 'ov-alp', text: pct(T.N ? n / T.N * 100 : null, 1) })]))), () => ovTiersDrawer(ok), 'Alertes par niveau');
+    const alCas = ovClickable(el('div', { class: 'ov-allink' + (open1.length ? ' bad' : '') }, [el('span', { text: open1.length ? fmt(open1.length) + ' cas grave(s) à transmettre' : 'aucun cas grave en attente' }), el('span', { class: 'ov-allink-go', text: 'Cas à suivre →' })]), ovGoCases, 'Cas à suivre');
+    main.appendChild(ovCard('Alertes', 'Visites avec au moins une alerte de chaque niveau, sur ' + fmt(T.N) + ' visites. ' + ovALERT_TIERS.source + '.', [alChips, alCas]));
+    main.appendChild(ovCard('Répartition des notes', fmt(st.n) + ' visites notées, médiane ' + fmt(st.med, 1) + '. Les ' + fmt(st.perfect) + ' visites à 100 sont à vérifier. Seuils internes ' + THR.mid + ' et ' + THR.good + ', activités mélangées.', [ovRating(ovRatingBins(ok), { open: () => ovScoreDrawer(null, ok) })]));
+    // 4. Tendance mensuelle
     const rows = months.map(m => { const vals = {}; ok.filter(v => v.month === m).forEach(v => { vals[v.act] = (vals[v.act] || 0) + 1; }); return { month: m, values: vals, line: null }; });
     main.appendChild(ovCard('Visites par mois', 'Visites exploitables par mois et par activité.' + (pm ? ' ' + pm : ''), [stackedMonthly(rows, acts, acts.map(a => ACT_COLOR[a]), acts.map(a => ACT[a].short), { aria: 'Visites par mois' }), legend(acts.map(a => [ACT_COLOR[a], ACT[a].short]))]));
     main.appendChild(ovCard('Score par mois', 'Score moyen sur 100 par activité. Pointillé : référence ' + THR.good + '. Point creux : moins de ' + SMALL_N.low + ' visites dans le mois ; sous ' + SMALL_N.min + ' visites, le mois n’est pas tracé.', [ovLineChart(ovScoreSeries(ok, acts, months), months), legend(acts.map(a => [ACT_COLOR[a], ACT[a].short]))]));
-    const st = ovScoreStats(ok);
-    const bins = [['< 50', -1, 50, 'bad'], ['50 – ' + THR.mid, 50, THR.mid, 'bad'], [THR.mid + ' – ' + THR.good, THR.mid, THR.good, 'mid'], [THR.good + ' – 90', THR.good, 90, 'good'], ['90 – 99', 90, 99.95, 'good'], ['100', 99.95, 1000, 'good']].map(([l, lo, hi, k]) => ({ label: l, n: ok.filter(v => ovNum(v.score) && v.score >= lo && v.score < hi).length, k }));
-    main.appendChild(ovCard('Répartition des scores', fmt(st.n) + ' visites notées, médiane ' + fmt(st.med, 1) + '. Les ' + fmt(st.perfect) + ' visites à 100 sont à vérifier. Seuils internes ' + THR.mid + ' et ' + THR.good + ', activités mélangées.', [ovClickable(el('div', null, [histo(bins, 'visites')]), () => ovScoreDrawer(null, ok), 'Répartition des scores')]));
     const nq = a => Object.keys(D.riskQ).filter(k => k.split('|')[0] === a).length;
     main.appendChild(ovCard('Alertes par activité', 'Nombre de visites avec au moins une alerte de chaque niveau (survolez pour le pourcentage). Le taux « au moins une alerte » dépend du nombre de questions d’alerte de chaque formulaire : ne comparez pas les activités sur ce taux. ' + ovALERT_TIERS.source + '.', [table([
       { k: 'a', t: 'Activité', fmt: p => { const s = el('span', { text: ACT[p.a].short }); bindTip(s, () => nq(p.a) + ' questions d’alerte dans le formulaire'); return s; } }, { k: 'n', t: 'Visites', num: 1, fmt: p => fmt(p.n) },
@@ -720,14 +940,11 @@
       { k: 't3', t: 'Gestion', num: 1, fmt: p => ovNCell(p.T.t3, p.n), sortVal: p => p.T.t3 }, { k: 'c', t: 'À confirmer', num: 1, fmt: p => ovNCell(p.T.c, p.n), sortVal: p => p.T.c },
       { k: 'any', t: 'Au moins une', num: 1, fmt: p => { const s = el('span', { class: 'ov-plain', text: pct(p.T.any / p.n * 100, 0) }); bindTip(s, () => nOf(p.T.any, p.n, 'visites')); return s; }, sortVal: p => p.T.any / p.n }], perAct, { onRow: p => ovTiersDrawer(ok, p.a) })], 'wide'));
     const ar = ovAlertRows(ok).filter(r => r.n).sort(ovAlertSort), AT = ovAlertTableNodes(ar, ok, false);
-    main.appendChild(ovCard('Alertes', AT.info, AT.nodes, 'wide'));
-    const covOk = perAct.filter(p => coverageComputable(p.a, p.cp) && !p.cp.outOfYear), covNo = perAct.filter(p => !coverageComputable(p.a, p.cp));
-    main.appendChild(ovCard('Couverture par activité', (typeof covDefinition === 'function' ? covDefinition() + ' ' : '') + ovCovNotes().join(' '), [ovBars(covOk.map(p => ({ label: ACT[p.a].short, value: p.cp.planned ? p.cp.visited / p.cp.planned * 100 : 0, ntxt: fmt(p.cp.visited) + '/' + fmt(p.cp.planned), tip: ACT[p.a].short + ' : ' + ovCovTxt(p.cp) })), { max: 100 }),
-      covNo.length ? el('p', { class: 'ov-warn1', text: covNo.map(p => ACT[p.a].short + ' : plan à compléter (' + fmt(p.cp.planned) + (p.cp.planned > 1 ? ' sites' : ' site') + ' au plan pour ' + fmt(sitesFollowed(p.a)) + ' suivis)').join(' ; ') }) : null]));
+    main.appendChild(ovCard('Détail des alertes', AT.info, AT.nodes, 'wide'));
     main.appendChild(ovRegionCard(ok, covF));
     main.appendChild(ovCard('Constats', 'Calculés sur les visites des filtres choisis ; ils changent avec les données.', [el('ul', { class: 'find' }, ovMessages(ok).map(([, t]) => el('li', { text: t }))),
       el('details', { class: 'ov-det' }, [el('summary', { text: 'Sur toute la période' }), el('ul', { class: 'find' }, (D.findings || []).map(f => el('li', { text: f })))])]));
-    main.appendChild(ovCard('Par activité', 'Mêmes définitions que les tuiles. Survolez une valeur pour le détail, cliquez une ligne pour le score.', [table([
+    main.appendChild(ovCard('Détail par activité', 'Mêmes définitions que les tuiles. Survolez une valeur pour le détail, cliquez une ligne pour le score.', [table([
       { k: 'a', t: 'Activité', fmt: p => ACT[p.a].short }, { k: 'n', t: 'Visites', num: 1, fmt: p => { const s = el('span', { class: 'ov-plain', text: fmt(p.n) }); bindTip(s, () => fmt(ovFiches(p.x).valid) + ' fiches exploitables'); return s; }, sortVal: p => p.n },
       { k: 's', t: 'Sites', num: 1, fmt: p => fmt(ovSites(p.x).ident), sortVal: p => ovSites(p.x).ident }, { k: 'ag', t: 'Agents', num: 1, fmt: p => fmt(ovAgents(p.x).n) },
       { k: 'sc', t: 'Score', num: 1, fmt: p => ovSmallCell(p.st.mean, p.st.n, ACT[p.a].short + ', médiane ' + fmt(p.st.med, 1)), sortVal: p => p.st.mean },
@@ -785,11 +1002,24 @@
     main.appendChild(el('div', { class: 'kpis' }, [
       ovTile({ l: 'Visites', v: fmt(ok.length), s: fmt(FI.valid) + ' fiches', i: 'Visites exploitables de l’activité. Écartées : ' + fmt(bad.length) + (bad.length ? ' (' + ovExclText(ovExclusions(bad)) + ')' : '') + '.', open: () => ovVisitsDrawer(ok, all, bad) }),
       ovTile({ l: 'Sites suivis', v: fmt(Sx.ident), s: 'dont ' + fmt(Sx.inPlan) + ' au plan', i: 'Sites comptés par leur code. À part : ' + fmt(Sx.off) + ' saisis hors liste, ' + fmt(Sx.noneVisits) + ' visites sans site.', open: () => ovSitesDrawer(ok) }),
-      ovTile({ l: 'Couverture du plan', v: computable && !cp.outOfYear ? pct(cp.visited / cp.planned * 100, 1) : 'n.c.', s: computable ? fmt(cp.visited) + '/' + fmt(cp.planned) + ' sites' : 'plan à compléter', i: computable ? (typeof covDefinition === 'function' ? covDefinition() : '') : 'Le plan liste ' + fmt(cp.planned) + ' site(s) actif(s) alors que ' + fmt(sitesFollowed(a)) + ' ont été suivis : couverture non calculable.', open: () => ovDrawer('Couverture du plan ' + planYearUI() + ', ' + ACT[a].short, null, { value: [['Sites actifs vus', ovCovTxt(cp)]], formula: typeof covDefinition === 'function' ? covDefinition() : '', limits: ovCovNotes() }) }),
-      ovTile({ l: 'Score', v: st.n ? fmt(st.mean, 1) : '–', c: nStatus(st.n) === 'ok' ? cls(st.mean) : null, s: 'médiane ' + fmt(st.med, 1), i: 'Score de conformité sur 100. ' + fmt(st.good) + ' visites sur ' + fmt(st.n) + ' atteignent ' + THR.good + ' (référence interne). ' + fmt(st.qmed) + ' questions répondues par visite en médiane, sur ' + fmt(it.meta.length) + '.', open: () => ovScoreDrawer(a, ok) }),
+      // Couverture du plan et Score ne sont plus en tuile : ils n'apparaissent qu'en jauge dans « En bref » ci-dessous (jauge = cible 80 %, couleur par seuil), pour éviter le doublon tuile/jauge à l'écran.
       ovTile({ l: 'Alertes graves', v: fmt(T.t1), c: T.t1 ? 'bad' : null, s: 'sur ' + fmt(T.N) + ' visites', i: 'À vérifier : ' + nOf(T.t2, T.N, 'visites') + '. Gestion : ' + fmt(T.t3) + '.' + (T.c ? ' À confirmer : ' + fmt(T.c) + '.' : '') + ' Au moins une alerte : ' + nOf(T.any, T.N, 'visites') + '.', open: () => ovTiersDrawer(ok, a) }),
       ovTile({ l: 'Agents', v: fmt(AG.n), s: AG.noName ? '+ ' + fmt(AG.noName) + ' visite sans nom' : null, i: 'Noms d’agents harmonisés ayant au moins une visite exploitable.', open: () => ovAgentsDrawer(ok) })
     ].concat(ovSpecTiles(a, ok))));
+    // Profil de l'activité (maquette 2) : radar des domaines · répartition des notes · jauges couverture et score
+    const covPctA = computable && cp.planned ? cp.visited / cp.planned * 100 : null;
+    const radarAxes = ovDomRows(a, ok).slice(0, 6).map(r => ({ label: r.d, value: nStatus(r.n) === 'na' ? null : r.v, n: r.n, N: r.N }));
+    const radar = ovRadar(radarAxes, { target: THR.good, size: 300, aria: 'Profil des domaines ' + ACT[a].short });
+    const gCov = ovGauge(covPctA, { target: THR.good, size: 148, na: !computable });
+    bindTip(gCov, () => computable ? 'Couverture du plan ' + planYearUI() + ' : ' + ovCovTxt(cp) + '\nCible MMR ' + THR.good + ' %' : 'Couverture non calculable (plan ' + fmt(cp.planned) + ' / ' + fmt(sitesFollowed(a)) + ' suivis)');
+    const gScore = ovGauge(st.n ? st.mean : null, { target: THR.good, size: 148, na: nStatus(st.n) !== 'ok' });
+    bindTip(gScore, () => 'Score moyen ' + fmt(st.mean, 1) + ' / 100 (médiane ' + fmt(st.med, 1) + ') sur ' + nOf(st.n, ok.length, 'visites') + '\nRéférence interne ' + THR.good);
+    const gaugeBlk = (g, lab, open, ariaLab) => { const b = el('div', { class: 'ov-synth-b' }, [g, el('div', { class: 'ov-glab', text: lab })]); return open ? ovClickable(b, open, ariaLab) : b; };
+    const gaugesCol = el('div', { class: 'ov-synth-g' }, [el('div', { class: 'ov-synth-t', text: 'Couverture & score' }),
+      el('div', { class: 'ov-synth-gg' }, [gaugeBlk(gCov, 'Couverture du plan', computable ? () => ovDrawer('Couverture du plan ' + planYearUI() + ', ' + ACT[a].short, null, { value: [['Sites actifs vus', ovCovTxt(cp)]], formula: typeof covDefinition === 'function' ? covDefinition() : '', limits: ovCovNotes() }) : null, 'Couverture'), gaugeBlk(gScore, 'Score / 100', () => ovScoreDrawer(a, ok), 'Score')])]);
+    const ratingBlk = el('div', { class: 'ov-synth-r' }, [el('div', { class: 'ov-synth-t', text: 'Répartition des notes' }), ovRating(ovRatingBins(ok), { open: () => ovScoreDrawer(a, ok) })]);
+    const cols = radar ? [el('div', { class: 'ov-synth-rad' }, [el('div', { class: 'ov-synth-t', text: 'Profil des domaines' }), ovClickable(el('div', null, [radar]), () => ovScoreDrawer(a, ok), 'Profil des domaines')]), ratingBlk, gaugesCol] : [ratingBlk, gaugesCol];
+    main.appendChild(ovCard('En bref', 'Profil des domaines (score /100, anneau pointillé = référence ' + THR.good + '), répartition des notes des visites, et jauges de couverture et de score. Détail au clic.', [el('div', { class: 'ov-actprofile' + (radar ? '' : ' ov-ap2') }, cols)], 'wide'));
     const wh = ovWhyHow(a, ok), skipped = ovDomRows(a, ok).filter(r => !ovDomRanked(r));
     main.appendChild(ovCard('Pourquoi et que faire', 'Les trois domaines les plus faibles (au moins ' + SMALL_N.low + ' visites et ' + pct(OV_DOM_SHARE * 100, 0) + ' des visites de l’activité) et les alertes les plus graves puis les plus fréquentes.' + (skipped.length ? ' Non classés, trop peu renseignés : ' + skipped.map(r => r.d + ' (' + fmt(r.n) + ' visites)').join(', ') + '.' : ''),
       [el('div', { class: 'wh ov-wh' }, [el('div', { class: 'wh-c' }, [el('h3', { text: 'Pourquoi' }), el('ul', null, wh.why.map(([, t]) => el('li', { text: t })))]), el('div', { class: 'wh-c' }, [el('h3', { text: 'Que faire' }), el('ul', null, wh.how.map(([, t]) => el('li', { text: t })))])])]));

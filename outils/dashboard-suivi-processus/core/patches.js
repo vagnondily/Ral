@@ -19,21 +19,32 @@ module.exports = [
   { label: 'inFilter + filtre de l’onglet Activités : district',
     find: "(F.region < 0 || v.region === F.region) && (F.org < 0 || v.org === F.org)",
     replace: "(F.region < 0 || v.region === F.region) && (F.district < 0 || v.district === F.district) && (F.org < 0 || v.org === F.org)", count: 2 },
-  { label: 'barre de filtres : district dépendant de la région, filtres non applicables grisés, résumé',
-    start: "    box.appendChild(mk('Région', [[-1, 'Toutes']]",
+  { label: 'barre de filtres : Activité + Période visibles, secondaires repliés derrière « Filtres », grisage généralisé, résumé',
+    start: "    box.appendChild(mk('Activité', [['ALL', 'Toutes les activités']]",
     end: "    box.appendChild(rs);",
-    replace: "    box.appendChild(mk('Région', [[-1, 'Toutes']].concat(usedIdx('region').map(i => [i, DICT.region[i]])), F.region, v => { F.region = +v; F.district = -1; buildFilters(); }));\n" +
-      "    const dIdx = Array.from(new Set(V.filter(v => F.region < 0 || v.region === F.region).map(v => v.district))).filter(i => DICT.district[i]).sort((a, b) => DICT.district[a].localeCompare(DICT.district[b]));\n" +
-      "    box.appendChild(mk('District', [[-1, 'Tous']].concat(dIdx.map(i => [i, DICT.district[i]])), F.district, v => { F.district = +v; }));\n" +
-      "    box.appendChild(mk('Partenaire de suivi (TPM)', [[-1, 'Tous']].concat(usedIdx('org').map(i => [i, DICT.org[i]])), F.org, v => { F.org = +v; }));\n" +
-      "    box.appendChild(mk('Partenaire de mise en œuvre', [[-1, 'Tous']].concat(usedIdx('imp').map(i => [i, DICT.imp[i]])), F.imp, v => { F.imp = +v; }));\n" +
-      "    box.appendChild(mk('Du mois', MONTHS.map(m => [m, monthLabel(m)]), F.m0, v => { F.m0 = v; if (F.m1 < v) F.m1 = v; buildFilters(); }));\n" +
-      "    box.appendChild(mk('Au mois', MONTHS.map(m => [m, monthLabel(m)]), F.m1, v => { F.m1 = v; if (F.m0 > v) F.m0 = v; buildFilters(); }));\n" +
+    replace: "    const applies = key => filterApplies(key === 'm0' || key === 'm1' ? 'period' : key) || (FILTER_SCOPE[TAB] === 'all');\n" +
+      "    const grey = (lb, key) => { if (!applies(key)) { lb.classList.add('f-off'); const s = lb.querySelector('select'); if (s) s.disabled = true; bindTip(lb, () => 'Ce filtre ne s’applique pas à cet onglet. ' + (FILTER_WHY[TAB] || '')); } return lb; };\n" +
+      "    box.appendChild(grey(mk('Activité', [['ALL', 'Toutes les activités']].concat(D.acts.map(a => [a.code, a.label])), F.act, v => { F.act = v; if (v !== 'ALL') ACT_SEL = v; }), 'act'));\n" +
+      "    box.appendChild(grey(mk('Du mois', MONTHS.map(m => [m, monthLabel(m)]), F.m0, v => { F.m0 = v; if (F.m1 < v) F.m1 = v; buildFilters(); }), 'm0'));\n" +
+      "    box.appendChild(grey(mk('Au mois', MONTHS.map(m => [m, monthLabel(m)]), F.m1, v => { F.m1 = v; if (F.m0 > v) F.m0 = v; buildFilters(); }), 'm1'));\n" +
+      "    const SEC = ['fo', 'region', 'district', 'org', 'imp'], anySec = SEC.some(applies), nSec = SEC.filter(k => F[k] >= 0).length, fOpen = !!SESSION.filtersOpen && anySec;\n" +
+      "    const ft = el('button', { class: 'btn f-toggle' + (fOpen ? ' on' : ''), type: 'button', 'aria-expanded': String(fOpen), 'aria-controls': 'f-panel' });\n" +
+      "    ft.appendChild(el('span', { text: 'Filtres' })); ft.appendChild(el('span', { class: 'f-caret', 'aria-hidden': 'true', text: fOpen ? '▲' : '▾' }));\n" +
+      "    if (nSec) ft.appendChild(el('span', { class: 'f-badge', text: String(nSec), 'aria-label': nSec + ' filtre(s) actif(s)' }));\n" +
+      "    if (!anySec) { ft.disabled = true; ft.classList.add('f-off'); bindTip(ft, () => 'Aucun de ces filtres ne s’applique à cet onglet. ' + (FILTER_WHY[TAB] || '')); }\n" +
+      "    else bindTip(ft, () => (fOpen ? 'Masquer' : 'Afficher') + ' les filtres par bureau, région, district, TPM et partenaire' + (nSec ? ' · ' + nSec + ' actif' + (nSec > 1 ? 's' : '') : ''));\n" +
+      "    ft.addEventListener('click', () => { SESSION.filtersOpen = !SESSION.filtersOpen; buildFilters(); }); box.appendChild(ft);\n" +
       "    const rs = el('button', { class: 'btn', type: 'button', text: 'Réinitialiser' });\n" +
       "    rs.addEventListener('click', () => { F.act = 'ALL'; F.fo = -1; F.region = -1; F.district = -1; F.org = -1; F.imp = -1; F.m0 = MONTHS[0]; F.m1 = MONTHS[MONTHS.length - 1]; buildFilters(); render(); });\n" +
       "    box.appendChild(rs);\n" +
-      "    const KEYS = ['act', 'fo', 'region', 'district', 'org', 'imp', 'm0', 'm1'];\n" +
-      "    Array.from(box.querySelectorAll('label')).forEach((lb, i) => { const key = KEYS[i]; if (!key) return; const ok = filterApplies(key === 'm0' || key === 'm1' ? 'period' : key) || (FILTER_SCOPE[TAB] === 'all'); const s = lb.querySelector('select'); if (!ok) { lb.classList.add('f-off'); s.disabled = true; bindTip(lb, () => 'Ce filtre ne s’applique pas à cet onglet. ' + (FILTER_WHY[TAB] || '')); } });\n" +
+      "    const panel = el('div', { class: 'f-panel' + (fOpen ? '' : ' f-hidden'), id: 'f-panel', role: 'group', 'aria-label': 'Filtres par bureau, zone et partenaire' });\n" +
+      "    panel.appendChild(grey(mk('Bureau de terrain', [[-1, 'Tous']].concat(usedIdx('fo').map(i => [i, DICT.fo[i]])), F.fo, v => { F.fo = +v; }), 'fo'));\n" +
+      "    panel.appendChild(grey(mk('Région', [[-1, 'Toutes']].concat(usedIdx('region').map(i => [i, DICT.region[i]])), F.region, v => { F.region = +v; F.district = -1; buildFilters(); }), 'region'));\n" +
+      "    const dIdx = Array.from(new Set(V.filter(v => F.region < 0 || v.region === F.region).map(v => v.district))).filter(i => DICT.district[i]).sort((a, b) => DICT.district[a].localeCompare(DICT.district[b]));\n" +
+      "    panel.appendChild(grey(mk('District', [[-1, 'Tous']].concat(dIdx.map(i => [i, DICT.district[i]])), F.district, v => { F.district = +v; }), 'district'));\n" +
+      "    panel.appendChild(grey(mk('Partenaire de suivi (TPM)', [[-1, 'Tous']].concat(usedIdx('org').map(i => [i, DICT.org[i]])), F.org, v => { F.org = +v; }), 'org'));\n" +
+      "    panel.appendChild(grey(mk('Partenaire de mise en œuvre', [[-1, 'Tous']].concat(usedIdx('imp').map(i => [i, DICT.imp[i]])), F.imp, v => { F.imp = +v; }), 'imp'));\n" +
+      "    box.appendChild(panel);\n" +
       "    if (filtersAny()) box.appendChild(el('div', { class: 'f-sum', text: 'Filtres : ' + filtersActiveText() }));" },
   { label: 'render : filtres conservés + barre recalculée selon l’onglet',
     find: "  function render() {\n    hideTip();",
@@ -51,4 +62,25 @@ module.exports = [
     start: "  document.getElementById('subtitle').textContent = `PAM Madagascar · Recherche, Évaluation et Suivi · Données du ${D.period[0]} au ${D.period[1]}",
     end: "\n",
     replace: "  { const stEl = document.getElementById('subtitle'); stEl.textContent = 'PAM Madagascar · données du ' + dateFrLong(D.period[0]) + ' au ' + dateFrLong(D.period[1]);\n    bindTip(stEl, () => 'Recherche, évaluation et suivi\\n' + fmt(D.visits.length) + ' visites (' + fmt(sum(D.dq.map(x => x.subs))) + ' fiches)\\nRecalculé le ' + dateFrLong(D.generated) + (lastUpdateLine() ? '\\n' + lastUpdateLine() : '')); }\n" },
+  // Fusion « Qualité & acteurs » : Agents + Partenaires deviennent des sous-vues de l'onglet Qualité (voir lot agents).
+  // On garde « Planification RBM » tel quel : le lot planning le renomme ensuite par son propre correctif.
+  { label: 'onglets : Agents + Partenaires fondus dans « Qualité & acteurs »',
+    find: "  const TABS = [['overview', 'Vue d’ensemble'], ['map', 'Carte'], ['activity', 'Activités'], ['agents', 'Agents'], ['partners', 'Partenaires'], ['quality', 'Qualité des données'], ['sites', 'Sites'], ['rbm', 'Planification RBM'], ['report', 'Rapport (imprimable)'], ['data', 'Données & mises à jour'], ['method', 'Méthodologie']];",
+    replace: "  const TABS = [['overview', 'Vue d’ensemble'], ['map', 'Carte'], ['activity', 'Activités'], ['quality', 'Qualité & acteurs'], ['sites', 'Sites'], ['rbm', 'Planification RBM'], ['report', 'Rapport (imprimable)'], ['data', 'Données & mises à jour'], ['method', 'Méthodologie']];" },
+  // Barre d'onglets groupée par familles (table TAB_FAMILIES dans core-module). Les boutons restent des enfants directs
+  // de #tabs (role=tab) ; chaque premier onglet d'une famille porte un intitulé discret. Clé inconnue → « Autres ».
+  { label: 'buildTabs : onglets groupés en familles (sans débordement)',
+    find: "    const t = clear(document.getElementById('tabs'));\n    TABS.forEach(([k, l]) => { const b = el('button', { type: 'button', role: 'tab', 'aria-selected': String(TAB === k), text: l }); b.addEventListener('click', () => { TAB = k; buildTabs(); render(); }); t.appendChild(b); });",
+    replace: "    const t = clear(document.getElementById('tabs'));\n" +
+      "    const famOf = k => { const f = TAB_FAMILIES.find(x => x[1].indexOf(k) >= 0); return f ? f[0] : 'Autres'; };\n" +
+      "    const famOrder = TAB_FAMILIES.map(x => x[0]).concat(['Autres']);\n" +
+      "    const famBuckets = {}; famOrder.forEach(n => { famBuckets[n] = []; });\n" +
+      "    TABS.forEach(pair => { famBuckets[famOf(pair[0])].push(pair); });\n" +
+      "    famOrder.forEach(n => { famBuckets[n].forEach((pair, idx) => {\n" +
+      "      const b = el('button', { type: 'button', role: 'tab', 'aria-selected': String(TAB === pair[0]) });\n" +
+      "      if (idx === 0) { b.setAttribute('data-fam-first', '1'); b.appendChild(el('span', { class: 'tab-fam', 'aria-hidden': 'true', text: n })); }\n" +
+      "      b.appendChild(el('span', { class: 'tab-lbl', text: pair[1] }));\n" +
+      "      b.addEventListener('click', () => { TAB = pair[0]; buildTabs(); render(); });\n" +
+      "      t.appendChild(b);\n" +
+      "    }); });" },
 ];

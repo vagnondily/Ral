@@ -2,10 +2,13 @@
 (async () => {
   const d = window.__dash, sleep = ms => new Promise(r => setTimeout(r, ms));
   const tab = async name => { const b = Array.from(document.querySelectorAll('#tabs button')).find(x => x.textContent.includes(name)); b.click(); await sleep(600); return document.getElementById('main').innerText; };
+  // Agents et Partenaires sont désormais des sous-vues de l'onglet « Qualité & acteurs » (barre .agx-sub-bar).
+  const sub = async name => { const b = Array.from(document.querySelectorAll('#main .agx-sub-bar button, #main .pl-sub button')).find(x => x.textContent.includes(name)); if (b) { b.click(); await sleep(600); } return document.getElementById('main').innerText; };
   const grab = async () => {
     const o = {};
-    o.overview = await tab('Vue d'); o.quality = await tab('Qualité'); o.method = await tab('Méthodo'); o.agents = await tab('Agents');
-    o.partners = await tab('Partenaires'); o.report = await tab('Rapport'); o.map = await tab('Carte'); o.planif = await tab('Planification'); o.sites = await tab('Sites');
+    o.overview = await tab('Vue d'); o.method = await tab('Méthodo');
+    await tab('Qualité'); o.quality = await sub('Par activité'); o.agents = await sub('Par agent'); o.partners = await sub('Par organisation');
+    o.report = await tab('Rapport'); o.map = await tab('Carte'); o.planif = await tab('Planification'); o.sites = await tab('Sites');
     o.subtitle = document.getElementById('subtitle').textContent; return o;
   };
   // texte saisi à la main dans le rapport AVANT la mise à jour (si le rapport le permet)

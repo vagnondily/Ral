@@ -18,6 +18,7 @@ const SETS = [
   { name: 'logistique', patches: __dirname + '/logistique/patches.js', module: __dirname + '/logistique/module.js', css: [__dirname + '/logistique/style.css'], post: true },
   { name: 'share', patches: __dirname + '/share/patches.js', module: __dirname + '/share/module.js', css: [__dirname + '/share/style.css'], post: true },
   { name: 'rapport', patches: __dirname + '/rapport/patches.js', module: __dirname + '/rapport/module.js', css: [__dirname + '/rapport/style.css'], post: true },
+  { name: 'federation', patches: __dirname + '/federation/patches.js', module: __dirname + '/federation/module.js', css: [__dirname + '/federation/style.css'], post: true },
   // Sécurité : correctifs appliqués APRÈS l'assemblage (ancres sur le texte final), + directives CSP supplémentaires
   { name: 'security', patches: __dirname + '/security/patches.js', module: __dirname + '/security/module.js', css: [__dirname + '/security/style.css'], post: true,
     csp: " require-trusted-types-for 'script'; trusted-types 'none';" },
@@ -49,7 +50,7 @@ if (args.includes('--release')) {
 }
 const A2 = '  // ------------------------------------------------------------------ tabs & render';
 if (js.split(A2).length !== 2) throw new Error('Ancre « tabs & render » absente ou multiple');
-js = js.replace(A2, modules.join('\n') + A2);
+js = js.split(A2).join(modules.join('\n') + A2);   // split/join = remplacement littéral (sûr aux séquences $'/$&/$n dans le code des modules)
 // lots « post » : correctifs sur le texte assemblé (lots + modules)
 for (const s of SETS) {
   if (!want.includes(s.name) || !s.post || !exists(s.patches)) continue;

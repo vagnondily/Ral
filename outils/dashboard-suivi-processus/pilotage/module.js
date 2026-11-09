@@ -674,18 +674,17 @@
     return piTable(cols, list, { onRow: s => piSubjectDrawer(M, s), label: s => s.title, cls: 'pi-subj' });
   }
   function piBlockHead(M, main) {
-    const C = M.complete, mode = piMode();
-    const hashN = el('span', { class: 'pi-hash pi-hashv', text: piHashTxt(piHashNow()) });
+    const C = M.complete;
     const seg = (cur, opts, on) => el('div', { class: 'pi-seg', role: 'group' }, opts.map(([v, l]) => { const b = piBtn(l, () => on(v), cur === v ? 'on' : ''); b.setAttribute('aria-pressed', String(cur === v)); return b; }));
+    // Impression et versions (interne / diffusable, figer) sont déléguées au Rapport (modèles « Note de direction » / « Synthèse ») ; ici, cockpit vivant seulement.
+    const toReport = () => { if (Array.isArray(TABS) && !TABS.some(t => t[0] === 'report')) return; piGoTab('report'); };
     const tools = el('div', { class: 'pi-tools pi-screen' }, [
       seg(M.T.k, [[3, '3 mois'], [1, '1 mois']], v => { SESSION.piK = v; render(); }),
-      seg(mode, [['int', 'Interne'], ['diff', 'Diffusable']], v => { SESSION.piMode = v; render(); }),
-      piBtn('Imprimer A4 interne', () => piPrint('int')), piBtn('Imprimer A4 diffusable', () => piPrint('diff')),
-      piBtn('Figer cette note', () => piFreeze(M)), piBtn('Règles et seuils', piRulesDrawer)]);
-    const by = String(SESSION.by || '').trim();
+      piBtn('Règles et seuils', piRulesDrawer),
+      piBtn('Imprimer / exporter → Rapport ›', toReport, 'pi-golink')]);
     const head = el('header', { class: 'pi-head' }, [
-      el('div', { class: 'pi-ht' }, [el('h1', { text: 'Note de pilotage, ' + piWin(M.T.R) }), el('span', { class: 'pi-diff pi-diff-' + mode, text: mode === 'diff' ? 'Diffusable' : 'Interne' })]),
-      el('p', { class: 'pi-meta' }, ['Comparé à ' + piWin(M.T.P) + '. Données du ' + dFrUI((D.period || [])[0]) + ' au ' + dFrUI(M.T.dataEnd) + '. Version ', hashN, ', note du ' + dFrUI(localDay()) + (by && !piDiff() ? ' par ' + by.slice(0, 60) : '') + '.']),
+      el('div', { class: 'pi-ht' }, [el('h1', { text: 'Cockpit de pilotage — ' + piWin(M.T.R) })]),
+      el('p', { class: 'pi-meta' }, 'Comparé à ' + piWin(M.T.P) + '. Données du ' + dFrUI((D.period || [])[0]) + ' au ' + dFrUI(M.T.dataEnd) + '.'),
       el('p', { class: 'pi-meta pi-print' }, 'Filtres : ' + filtersActiveText() + '.'),
       C.incomplete ? el('p', { class: 'pi-warn' }, piCap(piWin([C.Ml])) + ' incomplet : ' + fmt(C.n) + ' visites, ' + (C.ratio === null ? '–' : pct(C.ratio, 0)) + ' d’un mois habituel, hors tendances.') : null,
       (!piDiff() && typeof secIsDefault === 'function' && secIsDefault()) ? el('p', { class: 'pi-warn pi-screen' }, ['Mot de passe initial encore actif. ', infoBtn('Le mot de passe protège les boutons, pas les données : quiconque reçoit le fichier lit tout. Changez-le dans « Données et mises à jour ».')]) : null,
